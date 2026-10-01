@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS disputes;
+DROP TABLE IF EXISTS order_participations;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS price_tiers;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS suppliers;
+DROP TABLE IF EXISTS users;
