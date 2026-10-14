@@ -19,6 +19,7 @@ type RouterConfig struct {
 	CookieSecure bool
 	CORSOrigin   string
 	Limiter      *RateLimiter
+	Catalog      CatalogStore
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -49,6 +50,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/logout", authHandler.Logout)
 		r.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/me", authHandler.Me)
 	})
+
+	if cfg.Catalog != nil {
+		catalog := CatalogHandler{catalog: cfg.Catalog, users: cfg.Users, tokens: cfg.Tokens}
+		router.Get("/products", catalog.ListProducts)
+		router.Get("/products/{id}", catalog.GetProduct)
+		router.Get("/suppliers", catalog.ListSuppliers)
+		router.Get("/suppliers/{id}", catalog.GetSupplier)
+		router.Get("/categories", catalog.ListCategories)
+	}
 
 	return router
 }

@@ -1,6 +1,6 @@
 # CargoPrener API
 
-Go REST API for CargoPrener. Auth is implemented. The rest of the schema is migrated so later endpoints can use it.
+Go REST API for CargoPrener. Auth and the public catalog are implemented. Orders and disputes are in the schema for later endpoints.
 
 The frontend does not have an API client yet. There is no `src/api` folder and no `VITE_USE_MOCKS` flag. Landing types also differ from these tables: the UI puts `moq` on the product and uses `location` / `moderated` / `price`, while the database stores `orders.moq`, `suppliers.region`, `suppliers.is_verified`, and `price_tiers.unit_price`. Collected quantity and participant count are not columns; they come from `order_participations`.
 
@@ -54,7 +54,7 @@ To reapply migrations by hand, restart the API. golang-migrate records applied v
 go test ./...
 ```
 
-Auth handler tests use an in-memory user store. They do not need Postgres.
+Auth handler tests use an in-memory user store. Catalog handler tests use an in-memory catalog. Neither needs Postgres.
 
 ## Environment
 
@@ -156,6 +156,119 @@ Session cookie name: `session`. It is `HttpOnly`, `SameSite=Lax`, and `Secure` w
 ```
 
 `/auth/login` and `/auth/register` are limited to 10 requests per minute per address.
+
+### Catalog
+
+These routes are public. A guest, and any signed-in business account, only sees suppliers with `isVerified: true` and the products those suppliers sell. An unverified supplier, and a product from that supplier, is `404`. `GET /suppliers?includeUnverified=true` is ignored unless the session belongs to an admin. An admin also sees unverified suppliers' products on the product and category routes.
+
+Product:
+
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "name": "Kraft mailer boxes, 9 × 6 × 3 in",
+  "description": "Carton of 50 mailer boxes.",
+  "category": "Packaging",
+  "tags": ["mailer", "boxes"],
+  "unit": "carton",
+  "retailPrice": 16.5,
+  "supplier": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "Harbor Mill Supply",
+    "region": "Grand Rapids, MI",
+    "isVerified": true
+  },
+  "priceTiers": [
+    {"minQty": 100, "unitPrice": 11.2},
+    {"minQty": 140, "unitPrice": 9.6},
+    {"minQty": 180, "unitPrice": 8.4}
+  ],
+  "createdAt": "2026-07-01T15:00:00Z"
+}
+```
+
+`priceTiers` is sorted by `minQty` ascending. `retailPrice` and `unitPrice` are numbers.
+
+#### `GET /products`
+
+Query: `q` (case-insensitive search of name, description, and tags), `category`, `supplierId`, `region` (supplier region, case-insensitive), `sort` (`newest`, `name`, `price_asc`, `price_desc`; default `newest`; price is the lowest tier), `page` (default 1), `pageSize` (default 12, maximum 50).
+
+```bash
+curl "http://localhost:8080/products?q=mailer&category=Packaging&sort=price_asc&page=1&pageSize=12"
+```
+
+`200`
+
+```json
+{"items": [], "total": 0, "page": 1, "pageSize": 12}
+```
+
+`400` when `sort`, `page`, `pageSize`, or `supplierId` is invalid:
+
+```json
+{"message":"Invalid query","fieldErrors":{"sort":"Use newest, name, price_asc, or price_desc"}}
+```
+
+#### `GET /products/{id}`
+
+```bash
+curl "http://localhost:8080/products/33333333-3333-4333-8333-333333333333"
+```
+
+`200` with one product. `404`:
+
+```json
+{"message":"Product not found"}
+```
+
+#### `GET /suppliers`
+
+```bash
+curl "http://localhost:8080/suppliers"
+```
+
+`200` is an array:
+
+```json
+[{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "name": "Harbor Mill Supply",
+  "description": "Packaging supplier reviewed for the catalog.",
+  "region": "Grand Rapids, MI",
+  "isVerified": true,
+  "productCount": 3
+}]
+```
+
+An admin session can include suppliers still under review:
+
+```bash
+curl -b "session=ADMIN_TOKEN" "http://localhost:8080/suppliers?includeUnverified=true"
+```
+
+#### `GET /suppliers/{id}`
+
+```bash
+curl "http://localhost:8080/suppliers/11111111-1111-4111-8111-111111111111"
+```
+
+`200` with one supplier. `404`:
+
+```json
+{"message":"Supplier not found"}
+```
+
+#### `GET /categories`
+
+```bash
+curl "http://localhost:8080/categories"
+```
+
+`200`, sorted by name:
+
+```json
+[{"name":"Cleaning","count":2},{"name":"Packaging","count":3}]
+```
 
 ## Switching the frontend to this API
 

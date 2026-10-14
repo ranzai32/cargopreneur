@@ -44,6 +44,22 @@ func clearSessionCookie(w http.ResponseWriter, secure bool) {
 	})
 }
 
+func optionalUser(r *http.Request, users UserLookup, tokens *auth.Tokens) (domain.User, bool) {
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return domain.User{}, false
+	}
+	userID, err := tokens.Parse(cookie.Value)
+	if err != nil {
+		return domain.User{}, false
+	}
+	user, err := users.FindUserByID(r.Context(), userID)
+	if err != nil {
+		return domain.User{}, false
+	}
+	return user, true
+}
+
 func requireAuth(users UserLookup, tokens *auth.Tokens) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

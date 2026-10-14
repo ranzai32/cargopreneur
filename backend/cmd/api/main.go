@@ -59,6 +59,7 @@ func main() {
 		CookieSecure: cfg.CookieSecure,
 		CORSOrigin:   cfg.CORSOrigin,
 		Limiter:      httpapi.NewRateLimiter(10, time.Minute),
+		Catalog:      db,
 	})
 
 	server := &http.Server{
