@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Footer } from './Footer'
+import { ExampleNotice } from './ExampleNotice'
 import { Navbar } from './Navbar'
 
 export function PageLayout({ children }: { children: ReactNode }) {
@@ -9,6 +10,7 @@ export function PageLayout({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <Navbar />
+      <ExampleNotice />
       <main id="main" className="flex-1">
         {children}
       </main>

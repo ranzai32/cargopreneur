@@ -4,5 +4,6 @@ dist
 *.local
 .vite
 .env
+docker-compose.override.yml
 tsconfig.app.tsbuildinfo
 tsconfig.node.tsbuildinfo

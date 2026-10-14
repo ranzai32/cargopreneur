@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react'
 import { Button } from './Button'
 import { Container } from './Container'
 import { Logo } from './Logo'
+import { useAppState } from '../lib/app-state'
 
 const links = [
   { href: '/#how-it-works', label: 'How it works' },
@@ -12,6 +13,7 @@ const links = [
 ]
 
 export function Navbar() {
+  const { user, ready, logout } = useAppState()
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const menuId = useId()
@@ -106,12 +108,7 @@ export function Navbar() {
           ))}
         </nav>
         <div className="hidden items-center gap-2 lg:flex">
-          <Button to="/login" variant="ghost" size="sm">
-            Log in
-          </Button>
-          <Button to="/register" size="sm">
-            Sign up
-          </Button>
+          <AccountActions userName={ready ? user?.businessName : undefined} onLogout={logout} />
         </div>
         <button
           ref={toggleRef}
@@ -144,15 +141,43 @@ export function Navbar() {
             ))}
           </nav>
           <div className="mt-2 flex flex-col gap-2 border-t border-ink-200 py-4">
-            <Button to="/login" variant="secondary" className="w-full">
-              Log in
-            </Button>
-            <Button to="/register" className="w-full">
-              Sign up
-            </Button>
+            <AccountActions userName={ready ? user?.businessName : undefined} onLogout={logout} stacked />
           </div>
         </Container>
       </div>
     </header>
+  )
+}
+
+function AccountActions({
+  userName,
+  onLogout,
+  stacked = false,
+}: {
+  userName?: string
+  onLogout: () => Promise<void>
+  stacked?: boolean
+}) {
+  if (userName) {
+    return (
+      <>
+        <span className={stacked ? 'px-2 text-sm font-semibold text-ink-900' : 'max-w-40 truncate text-sm font-semibold text-ink-900'}>
+          {userName}
+        </span>
+        <Button variant="ghost" size="sm" className={stacked ? 'w-full' : undefined} onClick={() => void onLogout()}>
+          Log out
+        </Button>
+      </>
+    )
+  }
+  return (
+    <>
+      <Button to="/login" variant={stacked ? 'secondary' : 'ghost'} size={stacked ? 'md' : 'sm'} className={stacked ? 'w-full' : undefined}>
+        Log in
+      </Button>
+      <Button to="/register" size={stacked ? 'md' : 'sm'} className={stacked ? 'w-full' : undefined}>
+        Sign up
+      </Button>
+    </>
   )
 }
