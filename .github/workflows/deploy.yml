@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild the app on the server
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 5.199.162.254
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 30m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/bot
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            docker compose up -d --build --remove-orphans

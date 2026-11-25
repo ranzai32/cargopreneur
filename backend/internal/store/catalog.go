@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const productSearchExpr = `(p.name || ' ' || p.description || ' ' || array_to_string(p.tags, ' '))`
+const productSearchExpr = `(p.name || ' ' || p.description || ' ' || immutable_array_to_string(p.tags, ' '))`
 
 var productOrderSQL = map[string]string{
 	domain.SortNewest:    "p.created_at DESC, p.id DESC",
