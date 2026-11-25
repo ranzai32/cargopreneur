@@ -18,6 +18,7 @@ type OrderStore interface {
 	FindOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	CreateOrder(ctx context.Context, input domain.NewOrder) (domain.Order, error)
 	JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quantity int) (domain.Order, error)
+	CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 }
 
 type OrderHandler struct {
@@ -147,12 +148,16 @@ func (h OrderHandler) Join(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h OrderHandler) dispatchNotices(ctx context.Context) {
+	dispatchNotices(ctx, h.notifier)
+}
+
+func dispatchNotices(ctx context.Context, notifier domain.Notifier) {
 	notices := domain.TakeNotices(ctx)
-	if h.notifier == nil {
+	if notifier == nil {
 		return
 	}
 	for _, notice := range notices {
-		if err := h.notifier.Notify(ctx, notice); err != nil {
+		if err := notifier.Notify(ctx, notice); err != nil {
 			slog.Error("notify order", "error", err, "kind", notice.Kind, "orderId", notice.OrderID)
 		}
 	}

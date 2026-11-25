@@ -18,9 +18,10 @@ const (
 )
 
 var (
-	ErrProductUnavailable = errors.New("product unavailable")
-	ErrOrderClosed        = errors.New("order closed")
-	ErrAlreadyJoined      = errors.New("already joined")
+	ErrProductUnavailable  = errors.New("product unavailable")
+	ErrOrderClosed         = errors.New("order closed")
+	ErrAlreadyJoined       = errors.New("already joined")
+	ErrOrderNotCancellable = errors.New("order not cancellable")
 )
 
 type Order struct {

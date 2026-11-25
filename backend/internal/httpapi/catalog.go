@@ -19,6 +19,9 @@ type CatalogStore interface {
 	ListSuppliers(ctx context.Context, includeUnverified bool) ([]domain.Supplier, error)
 	FindSupplier(ctx context.Context, id uuid.UUID, includeUnverified bool) (domain.Supplier, error)
 	ListCategories(ctx context.Context, includeUnverified bool) ([]domain.Category, error)
+	CreateSupplier(ctx context.Context, input domain.NewSupplier) (domain.Supplier, error)
+	VerifySupplier(ctx context.Context, id uuid.UUID) (domain.Supplier, error)
+	CreateProduct(ctx context.Context, input domain.NewProduct) (domain.Product, error)
 }
 
 type CatalogHandler struct {
