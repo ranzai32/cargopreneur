@@ -38,6 +38,8 @@ const orderSelectSQL = `
 	       COALESCE(SUM(p.quantity), 0)::int,
 	       COUNT(p.id)::int,
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.quantity END),
+	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.payment_status END),
+	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
 	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at,
 	       s.id, s.name, s.region, s.is_verified
 	FROM orders o
@@ -210,6 +212,89 @@ func (s *Store) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quanti
 	}
 	if closed != nil {
 		return domain.Order{}, closed
+	}
+	return order, nil
+}
+
+func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error) {
+	var order domain.Order
+	var rejected error
+	address := strings.TrimSpace(shippingAddress)
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		head, err := lockOrder(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		collected, userIDs, err := participationSummary(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		notices, err := settleHead(ctx, tx, &head, collected, userIDs, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		if head.Status != domain.OrderConfirmed {
+			rejected = domain.ErrNotReadyForPayment
+			return notices, nil
+		}
+		var paymentStatus string
+		err = tx.QueryRow(ctx, `
+			SELECT payment_status
+			FROM order_participations
+			WHERE order_id = $1 AND user_id = $2
+			FOR UPDATE
+		`, orderID, userID).Scan(&paymentStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			rejected = domain.ErrNotParticipant
+			return notices, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock participation: %w", err)
+		}
+		if paymentStatus == domain.PaymentPaid {
+			rejected = domain.ErrAlreadyPaid
+			return notices, nil
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE order_participations
+			SET payment_status = $3, paid_at = $4, shipping_address = $5
+			WHERE order_id = $1 AND user_id = $2
+		`, orderID, userID, domain.PaymentPaid, time.Now().UTC(), address); err != nil {
+			return nil, fmt.Errorf("mark participation paid: %w", err)
+		}
+		var unpaid int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)::int
+			FROM order_participations
+			WHERE order_id = $1 AND payment_status <> $2
+		`, orderID, domain.PaymentPaid).Scan(&unpaid); err != nil {
+			return nil, fmt.Errorf("count unpaid participations: %w", err)
+		}
+		if unpaid == 0 {
+			if err := updateOrderStatus(ctx, tx, orderID, domain.OrderPaid); err != nil {
+				return nil, err
+			}
+		}
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID)
+		if err != nil {
+			return nil, err
+		}
+		if len(loaded) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		order = loaded[0]
+		notices = append(notices, domain.Notice{
+			Kind:    domain.NoticePaymentReceived,
+			OrderID: orderID,
+			UserIDs: []uuid.UUID{userID},
+		})
+		return notices, nil
+	})
+	if err != nil {
+		return domain.Order{}, err
+	}
+	if rejected != nil {
+		return domain.Order{}, rejected
 	}
 	return order, nil
 }
@@ -419,6 +504,8 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.CollectedQty,
 		&order.ParticipantCount,
 		&order.YourQuantity,
+		&order.YourPaymentStatus,
+		&order.AllPaid,
 		&order.Product.ID,
 		&order.Product.Name,
 		&order.Product.Description,

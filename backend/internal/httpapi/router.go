@@ -73,6 +73,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		router.Get("/orders/{id}", orders.Get)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders", orders.Create)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/join", orders.Join)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/pay", orders.Pay)
 	}
 
 	return router

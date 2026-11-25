@@ -42,13 +42,15 @@ export type ApiUser = {
 
 export type ApiOrder = {
   id: string
-  status: 'open' | 'confirmed' | 'cancelled'
+  status: 'open' | 'confirmed' | 'paid' | 'completed' | 'cancelled'
   moq: number
   deadline: string
   createdAt: string
   collectedQty: number
   participantCount: number
   yourQuantity: number | null
+  yourPaymentStatus: 'unpaid' | 'paid' | null
+  allPaid: boolean
   product: ApiProduct
 }
 

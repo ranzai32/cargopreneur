@@ -14,38 +14,50 @@ import (
 const (
 	OrderOpen      = "open"
 	OrderConfirmed = "confirmed"
+	OrderPaid      = "paid"
+	OrderCompleted = "completed"
 	OrderCancelled = "cancelled"
+
+	PaymentUnpaid = "unpaid"
+	PaymentPaid   = "paid"
 )
 
 var (
 	ErrProductUnavailable = errors.New("product unavailable")
 	ErrOrderClosed        = errors.New("order closed")
 	ErrAlreadyJoined      = errors.New("already joined")
+	ErrNotReadyForPayment = errors.New("order not ready for payment")
+	ErrNotParticipant     = errors.New("not a participant")
+	ErrAlreadyPaid        = errors.New("already paid")
 )
 
 type Order struct {
-	ID               uuid.UUID
-	ProductID        uuid.UUID
-	Status           string
-	MOQ              int
-	Deadline         time.Time
-	CreatedAt        time.Time
-	CollectedQty     int
-	ParticipantCount int
-	YourQuantity     *int
-	Product          Product
+	ID                uuid.UUID
+	ProductID         uuid.UUID
+	Status            string
+	MOQ               int
+	Deadline          time.Time
+	CreatedAt         time.Time
+	CollectedQty      int
+	ParticipantCount  int
+	YourQuantity      *int
+	YourPaymentStatus *string
+	AllPaid           bool
+	Product           Product
 }
 
 type OrderJSON struct {
-	ID               uuid.UUID   `json:"id"`
-	Status           string      `json:"status"`
-	MOQ              int         `json:"moq"`
-	Deadline         time.Time   `json:"deadline"`
-	CreatedAt        time.Time   `json:"createdAt"`
-	CollectedQty     int         `json:"collectedQty"`
-	ParticipantCount int         `json:"participantCount"`
-	YourQuantity     *int        `json:"yourQuantity"`
-	Product          ProductJSON `json:"product"`
+	ID                uuid.UUID   `json:"id"`
+	Status            string      `json:"status"`
+	MOQ               int         `json:"moq"`
+	Deadline          time.Time   `json:"deadline"`
+	CreatedAt         time.Time   `json:"createdAt"`
+	CollectedQty      int         `json:"collectedQty"`
+	ParticipantCount  int         `json:"participantCount"`
+	YourQuantity      *int        `json:"yourQuantity"`
+	YourPaymentStatus *string     `json:"yourPaymentStatus"`
+	AllPaid           bool        `json:"allPaid"`
+	Product           ProductJSON `json:"product"`
 }
 
 type NewOrder struct {
@@ -68,17 +80,23 @@ type JoinOrderBody struct {
 	Quantity json.RawMessage `json:"quantity"`
 }
 
+type PayOrderBody struct {
+	ShippingAddress string `json:"shippingAddress"`
+}
+
 func (o Order) JSON() OrderJSON {
 	return OrderJSON{
-		ID:               o.ID,
-		Status:           o.Status,
-		MOQ:              o.MOQ,
-		Deadline:         o.Deadline.UTC(),
-		CreatedAt:        o.CreatedAt.UTC(),
-		CollectedQty:     o.CollectedQty,
-		ParticipantCount: o.ParticipantCount,
-		YourQuantity:     o.YourQuantity,
-		Product:          o.Product.JSON(),
+		ID:                o.ID,
+		Status:            o.Status,
+		MOQ:               o.MOQ,
+		Deadline:          o.Deadline.UTC(),
+		CreatedAt:         o.CreatedAt.UTC(),
+		CollectedQty:      o.CollectedQty,
+		ParticipantCount:  o.ParticipantCount,
+		YourQuantity:      o.YourQuantity,
+		YourPaymentStatus: o.YourPaymentStatus,
+		AllPaid:           o.AllPaid,
+		Product:           o.Product.JSON(),
 	}
 }
 
@@ -132,6 +150,14 @@ func ParseJoinOrder(body JoinOrderBody) (int, map[string]string) {
 		return 0, map[string]string{"quantity": "Enter a quantity of at least 1"}
 	}
 	return quantity, nil
+}
+
+func ParsePayOrder(body PayOrderBody) (string, map[string]string) {
+	address := strings.TrimSpace(body.ShippingAddress)
+	if address == "" {
+		return "", map[string]string{"shippingAddress": "Enter a shipping address"}
+	}
+	return address, nil
 }
 
 func NextOrderStatus(status string, deadline time.Time, collected, moq int, now time.Time) (string, bool) {

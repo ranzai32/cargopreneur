@@ -35,6 +35,8 @@ export const api = {
     request<ApiOrder>('/orders', { method: 'POST', body }),
   joinOrder: (id: string, quantity: number) =>
     request<ApiOrder>(`/orders/${id}/join`, { method: 'POST', body: { quantity } }),
+  pay: (id: string, shippingAddress: string) =>
+    request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body: { shippingAddress } }),
 }
 
 async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {

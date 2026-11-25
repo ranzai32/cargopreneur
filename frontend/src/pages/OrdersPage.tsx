@@ -106,8 +106,16 @@ export function OrdersPage() {
 }
 
 export function StatusBadge({ status }: { status: ApiOrder['status'] }) {
-  const tone = status === 'confirmed' ? 'success' : status === 'cancelled' ? 'neutral' : 'accent'
-  const label = status === 'open' ? 'Open' : status === 'confirmed' ? 'Confirmed' : 'Cancelled'
+  const tone = status === 'open' ? 'accent' : status === 'cancelled' ? 'neutral' : 'success'
+  const label = status === 'open'
+    ? 'Open'
+    : status === 'confirmed'
+      ? 'Confirmed'
+      : status === 'paid'
+        ? 'Paid'
+        : status === 'completed'
+          ? 'Completed'
+          : 'Cancelled'
   return <Badge tone={tone}>{label}</Badge>
 }
 

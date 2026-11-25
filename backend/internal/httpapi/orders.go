@@ -18,6 +18,7 @@ type OrderStore interface {
 	FindOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	CreateOrder(ctx context.Context, input domain.NewOrder) (domain.Order, error)
 	JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quantity int) (domain.Order, error)
+	PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error)
 }
 
 type OrderHandler struct {
@@ -140,6 +141,52 @@ func (h OrderHandler) Join(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("join order", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, order.JSON())
+}
+
+func (h OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body domain.PayOrderBody
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	address, fieldErrors := domain.ParsePayOrder(body)
+	if len(fieldErrors) > 0 {
+		writeValidation(w, fieldErrors)
+		return
+	}
+	ctx := domain.WithNoticeLog(r.Context())
+	order, err := h.orders.PayOrder(ctx, id, user.ID, address)
+	h.dispatchNotices(ctx)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Order not found", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrNotReadyForPayment) {
+		writeError(w, http.StatusBadRequest, "This order is not ready for payment", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrNotParticipant) {
+		writeError(w, http.StatusForbidden, "You are not part of this order", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrAlreadyPaid) {
+		writeError(w, http.StatusConflict, "This order is already paid", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("pay order", "error", err)
 		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
 		return
 	}

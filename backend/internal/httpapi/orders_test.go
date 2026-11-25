@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -289,6 +290,110 @@ func TestJoinOrderAggregatesAndRejects(t *testing.T) {
 	request(t, router, http.MethodPost, "/orders/not-an-id/join", map[string]any{"quantity": 1}, late, http.StatusBadRequest)
 }
 
+func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
+	orders := newMemOrders()
+	users := newFakeUsers()
+	notices := &captureNotifier{}
+	router, tokens := orderRouterWith(orders, users, notices)
+	payer, payerCookie := signedIn(t, users, tokens, domain.RoleBusiness, "payer@harbor.example")
+	partner, partnerCookie := signedIn(t, users, tokens, domain.RoleBusiness, "partner@harbor.example")
+	_, outsiderCookie := signedIn(t, users, tokens, domain.RoleBusiness, "outsider@harbor.example")
+
+	future := time.Date(2099, 3, 1, 23, 59, 59, 0, time.UTC)
+	confirmedID := uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1")
+	openID := uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2")
+	cancelledID := uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3")
+	orders.seed(storedOrder{
+		id: confirmedID, productID: towelID, status: domain.OrderConfirmed, moq: 10, deadline: future,
+		createdAt: time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC),
+		parts: []participation{
+			{userID: payer.ID, quantity: 6},
+			{userID: partner.ID, quantity: 4},
+		},
+	})
+	orders.seed(storedOrder{
+		id: openID, productID: towelID, status: domain.OrderOpen, moq: 20, deadline: future,
+		createdAt: time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC),
+		parts:     []participation{{userID: payer.ID, quantity: 2}},
+	})
+	orders.seed(storedOrder{
+		id: cancelledID, productID: mailerID, status: domain.OrderCancelled, moq: 8, deadline: future,
+		createdAt: time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC),
+		parts:     []participation{{userID: payer.ID, quantity: 1}},
+	})
+
+	denied, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, nil, http.StatusUnauthorized)
+	if denied["message"] != "Authentication required" {
+		t.Fatalf("auth = %#v", denied)
+	}
+	missing, _ := request(t, router, http.MethodPost, "/orders/"+uuid.NewString()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusNotFound)
+	if missing["message"] != "Order not found" {
+		t.Fatalf("missing = %#v", missing)
+	}
+	early, _ := request(t, router, http.MethodPost, "/orders/"+openID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusBadRequest)
+	if early["message"] != "This order is not ready for payment" {
+		t.Fatalf("open = %#v", early)
+	}
+	stillOpen, _ := request(t, router, http.MethodGet, "/orders/"+openID.String(), nil, payerCookie, http.StatusOK)
+	if stillOpen["status"] != domain.OrderOpen || stillOpen["yourPaymentStatus"] != domain.PaymentUnpaid || stillOpen["allPaid"] != false {
+		t.Fatalf("open after pay = %#v", stillOpen)
+	}
+	cancelled, _ := request(t, router, http.MethodPost, "/orders/"+cancelledID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusBadRequest)
+	if cancelled["message"] != "This order is not ready for payment" {
+		t.Fatalf("cancelled = %#v", cancelled)
+	}
+	outsider, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "9 River Road"}, outsiderCookie, http.StatusForbidden)
+	if outsider["message"] != "You are not part of this order" {
+		t.Fatalf("outsider = %#v", outsider)
+	}
+	blank, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "   "}, payerCookie, http.StatusUnprocessableEntity)
+	if blank["message"] != "Check the highlighted fields" || blank["fieldErrors"].(map[string]any)["shippingAddress"] != "Enter a shipping address" {
+		t.Fatalf("blank = %#v", blank)
+	}
+	if len(notices.list()) != 0 {
+		t.Fatalf("notices before payment = %#v", notices.list())
+	}
+
+	paid, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "  12 Dock Street  "}, payerCookie, http.StatusOK)
+	assertOrderShape(t, paid)
+	if paid["status"] != domain.OrderConfirmed || paid["yourPaymentStatus"] != domain.PaymentPaid || paid["allPaid"] != false || intField(t, paid, "yourQuantity") != 6 || intField(t, paid, "collectedQty") != 10 {
+		t.Fatalf("first pay = %#v", paid)
+	}
+	if saved := savedAddress(t, orders, confirmedID, payer.ID); saved != "12 Dock Street" {
+		t.Fatalf("address = %q", saved)
+	}
+	recorded := notices.list()
+	if len(recorded) != 1 || recorded[0].Kind != domain.NoticePaymentReceived || recorded[0].OrderID != confirmedID || len(recorded[0].UserIDs) != 1 || recorded[0].UserIDs[0] != payer.ID {
+		t.Fatalf("notice = %#v", recorded)
+	}
+
+	again, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusConflict)
+	if again["message"] != "This order is already paid" {
+		t.Fatalf("second pay = %#v", again)
+	}
+	if len(notices.list()) != 1 {
+		t.Fatalf("notices after second pay = %#v", notices.list())
+	}
+
+	finished, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "4 Market Street"}, partnerCookie, http.StatusOK)
+	assertOrderShape(t, finished)
+	if finished["status"] != domain.OrderPaid || finished["yourPaymentStatus"] != domain.PaymentPaid || finished["allPaid"] != true || intField(t, finished, "yourQuantity") != 4 {
+		t.Fatalf("all paid = %#v", finished)
+	}
+	payerView, _ := request(t, router, http.MethodGet, "/orders/"+confirmedID.String(), nil, payerCookie, http.StatusOK)
+	if payerView["status"] != domain.OrderPaid || payerView["yourPaymentStatus"] != domain.PaymentPaid || payerView["allPaid"] != true || intField(t, payerView, "yourQuantity") != 6 {
+		t.Fatalf("payer view = %#v", payerView)
+	}
+	strangerView, _ := request(t, router, http.MethodGet, "/orders/"+confirmedID.String(), nil, outsiderCookie, http.StatusOK)
+	if strangerView["yourPaymentStatus"] != nil || strangerView["allPaid"] != true || strangerView["yourQuantity"] != nil {
+		t.Fatalf("stranger view = %#v", strangerView)
+	}
+	recorded = notices.list()
+	if len(recorded) != 2 || recorded[1].Kind != domain.NoticePaymentReceived || len(recorded[1].UserIDs) != 1 || recorded[1].UserIDs[0] != partner.ID {
+		t.Fatalf("notices = %#v", recorded)
+	}
+}
+
 func TestOrderWritesRequireAuth(t *testing.T) {
 	router, _ := orderRouter(newMemOrders(), newFakeUsers())
 	request(t, router, http.MethodPost, "/orders", map[string]any{
@@ -304,9 +409,16 @@ func TestOrderWritesRequireAuth(t *testing.T) {
 }
 
 func orderRouter(orders *memOrders, users *fakeUsers) (http.Handler, *auth.Tokens) {
+	return orderRouterWith(orders, users, domain.NopNotifier{})
+}
+
+func orderRouterWith(orders *memOrders, users *fakeUsers, notifier domain.Notifier) (http.Handler, *auth.Tokens) {
 	tokens := auth.NewTokens("test-secret-value", time.Hour)
 	if users == nil {
 		users = newFakeUsers()
+	}
+	if notifier == nil {
+		notifier = domain.NopNotifier{}
 	}
 	return NewRouter(RouterConfig{
 		Users:      users,
@@ -316,7 +428,7 @@ func orderRouter(orders *memOrders, users *fakeUsers) (http.Handler, *auth.Token
 		CORSOrigin: "http://localhost:5173",
 		Limiter:    NewRateLimiter(100, time.Minute),
 		Orders:     orders,
-		Notifier:   domain.NopNotifier{},
+		Notifier:   notifier,
 	}), tokens
 }
 
@@ -342,7 +454,7 @@ func signedIn(t *testing.T, users *fakeUsers, tokens *auth.Tokens, role, email s
 
 func assertOrderShape(t *testing.T, order map[string]any) {
 	t.Helper()
-	want := []string{"collectedQty", "createdAt", "deadline", "id", "moq", "participantCount", "product", "status", "yourQuantity"}
+	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "id", "moq", "participantCount", "product", "status", "yourPaymentStatus", "yourQuantity"}
 	if !sameStrings(mapKeys(order), want) {
 		t.Fatalf("order keys = %#v", mapKeys(order))
 	}
@@ -409,8 +521,11 @@ func mapKeys(value map[string]any) []string {
 }
 
 type participation struct {
-	userID   uuid.UUID
-	quantity int
+	userID          uuid.UUID
+	quantity        int
+	paymentStatus   string
+	paidAt          *time.Time
+	shippingAddress string
 }
 
 type storedOrder struct {
@@ -497,7 +612,7 @@ func (m *memOrders) CreateOrder(ctx context.Context, input domain.NewOrder) (dom
 		moq:       input.MOQ,
 		deadline:  input.Deadline,
 		createdAt: time.Now().UTC(),
-		parts:     []participation{{userID: input.CreatorID, quantity: input.Quantity}},
+		parts:     []participation{{userID: input.CreatorID, quantity: input.Quantity, paymentStatus: domain.PaymentUnpaid}},
 	}
 	m.orders = append(m.orders, order)
 	if status == domain.OrderConfirmed {
@@ -526,7 +641,7 @@ func (m *memOrders) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, qu
 			return domain.Order{}, domain.ErrAlreadyJoined
 		}
 	}
-	order.parts = append(order.parts, participation{userID: userID, quantity: quantity})
+	order.parts = append(order.parts, participation{userID: userID, quantity: quantity, paymentStatus: domain.PaymentUnpaid})
 	if collectedQuantity(order) >= order.moq {
 		order.status = domain.OrderConfirmed
 		domain.AddNotice(ctx, domain.Notice{
@@ -535,6 +650,45 @@ func (m *memOrders) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, qu
 			UserIDs: participantIDs(order),
 		})
 	}
+	return m.view(order, &userID)
+}
+
+func (m *memOrders) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order := m.find(orderID)
+	if order == nil {
+		return domain.Order{}, domain.ErrNotFound
+	}
+	m.settle(ctx, order, time.Now().UTC())
+	if order.status != domain.OrderConfirmed {
+		return domain.Order{}, domain.ErrNotReadyForPayment
+	}
+	index := -1
+	for i, part := range order.parts {
+		if part.userID == userID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return domain.Order{}, domain.ErrNotParticipant
+	}
+	if participationStatus(order.parts[index]) == domain.PaymentPaid {
+		return domain.Order{}, domain.ErrAlreadyPaid
+	}
+	now := time.Now().UTC()
+	order.parts[index].paymentStatus = domain.PaymentPaid
+	order.parts[index].paidAt = &now
+	order.parts[index].shippingAddress = strings.TrimSpace(shippingAddress)
+	if allParticipationsPaid(order) {
+		order.status = domain.OrderPaid
+	}
+	domain.AddNotice(ctx, domain.Notice{
+		Kind:    domain.NoticePaymentReceived,
+		OrderID: order.id,
+		UserIDs: []uuid.UUID{userID},
+	})
 	return m.view(order, &userID)
 }
 
@@ -574,23 +728,33 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 		return domain.Order{}, domain.ErrNotFound
 	}
 	var yours *int
+	var payment *string
+	allPaid := len(order.parts) > 0
 	for _, part := range order.parts {
+		status := participationStatus(part)
+		if status != domain.PaymentPaid {
+			allPaid = false
+		}
 		if viewerID != nil && part.userID == *viewerID {
 			quantity := part.quantity
 			yours = &quantity
+			statusCopy := status
+			payment = &statusCopy
 		}
 	}
 	return domain.Order{
-		ID:               order.id,
-		ProductID:        order.productID,
-		Status:           order.status,
-		MOQ:              order.moq,
-		Deadline:         order.deadline,
-		CreatedAt:        order.createdAt,
-		CollectedQty:     collectedQuantity(order),
-		ParticipantCount: len(order.parts),
-		YourQuantity:     yours,
-		Product:          product,
+		ID:                order.id,
+		ProductID:         order.productID,
+		Status:            order.status,
+		MOQ:               order.moq,
+		Deadline:          order.deadline,
+		CreatedAt:         order.createdAt,
+		CollectedQty:      collectedQuantity(order),
+		ParticipantCount:  len(order.parts),
+		YourQuantity:      yours,
+		YourPaymentStatus: payment,
+		AllPaid:           allPaid,
+		Product:           product,
 	}, nil
 }
 
@@ -609,6 +773,61 @@ func (m *memOrders) productByID(id uuid.UUID) (domain.Product, bool) {
 		}
 	}
 	return domain.Product{}, false
+}
+
+func participationStatus(part participation) string {
+	if part.paymentStatus == "" {
+		return domain.PaymentUnpaid
+	}
+	return part.paymentStatus
+}
+
+func allParticipationsPaid(order *storedOrder) bool {
+	if len(order.parts) == 0 {
+		return false
+	}
+	for _, part := range order.parts {
+		if participationStatus(part) != domain.PaymentPaid {
+			return false
+		}
+	}
+	return true
+}
+
+func savedAddress(t *testing.T, orders *memOrders, orderID, userID uuid.UUID) string {
+	t.Helper()
+	orders.mu.Lock()
+	defer orders.mu.Unlock()
+	order := orders.find(orderID)
+	if order == nil {
+		t.Fatalf("order %s missing", orderID)
+	}
+	for _, part := range order.parts {
+		if part.userID == userID {
+			return part.shippingAddress
+		}
+	}
+	t.Fatalf("participation %s missing", userID)
+	return ""
+}
+
+type captureNotifier struct {
+	mu    sync.Mutex
+	items []domain.Notice
+}
+
+func (c *captureNotifier) Notify(_ context.Context, notice domain.Notice) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	notice.UserIDs = append([]uuid.UUID(nil), notice.UserIDs...)
+	c.items = append(c.items, notice)
+	return nil
+}
+
+func (c *captureNotifier) list() []domain.Notice {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]domain.Notice(nil), c.items...)
 }
 
 func collectedQuantity(order *storedOrder) int {

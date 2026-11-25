@@ -5,6 +5,7 @@ import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { ProgressBar } from '../components/ProgressBar'
+import { TextField } from '../components/TextField'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
@@ -14,9 +15,11 @@ import type { ApiOrder } from '../types/catalog'
 export function OrderPage() {
   const { orderId = '' } = useParams()
   const navigate = useNavigate()
-  const { user, loadOrder, joinOrder } = useAppState()
+  const { user, loadOrder, joinOrder, pay } = useAppState()
   const [order, setOrder] = useState<ApiOrder | null>(null)
   const [quantity, setQuantity] = useState(1)
+  const [address, setAddress] = useState('')
+  const [addressError, setAddressError] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
@@ -26,6 +29,7 @@ export function OrderPage() {
     loadOrder(orderId)
       .then((item) => {
         if (cancel) return
+        setError('')
         setOrder(item)
         document.title = `${item.product.name} order · CargoPrener`
       })
@@ -72,6 +76,27 @@ export function OrderPage() {
     }
   }
 
+  async function handlePay() {
+    setPending(true)
+    setAddressError('')
+    setMessage('')
+    try {
+      const updated = await pay(orderId, address)
+      setOrder(updated)
+    } catch (reason) {
+      const fields = fieldErrorsOf(reason)
+      if (fields.shippingAddress) {
+        setAddressError(fields.shippingAddress)
+      } else {
+        setMessage(isApiError(reason) ? reason.message : 'Could not record payment')
+      }
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const canPay = Boolean(order.yourQuantity) && order.status === 'confirmed' && order.yourPaymentStatus === 'unpaid'
+
   return (
     <PageLayout>
       <Container className="py-section">
@@ -97,7 +122,28 @@ export function OrderPage() {
           <Card className="h-fit p-5 sm:p-6">
             <h2 className="font-serif text-2xl text-ink-950">Your quantity</h2>
             {order.yourQuantity ? (
-              <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity, order.product.unit)}.</p>
+              <div className="mt-3">
+                <p className="text-ink-700">You joined with {formatQuantity(order.yourQuantity, order.product.unit)}.</p>
+                {canPay && (
+                  <div className="mt-4">
+                    <TextField
+                      id="shipping-address"
+                      label="Shipping address"
+                      value={address}
+                      error={addressError}
+                      autoComplete="street-address"
+                      onChange={(event) => setAddress(event.target.value)}
+                    />
+                    <p className="mt-3 text-sm text-ink-700">This records a simulated payment. No card is charged.</p>
+                    <Button className="mt-4 w-full" disabled={pending} onClick={handlePay}>
+                      {pending ? 'Paying…' : 'Pay'}
+                    </Button>
+                  </div>
+                )}
+                {order.yourPaymentStatus === 'paid' && (
+                  <p role="status" className="mt-3 text-ink-800">Your simulated payment was recorded.</p>
+                )}
+              </div>
             ) : open ? (
               <div className="mt-4">
                 {!user ? (
@@ -119,9 +165,11 @@ export function OrderPage() {
               </div>
             ) : (
               <p className="mt-3 text-ink-700">
-                {order.status === 'confirmed'
-                  ? 'This order reached the minimum and is confirmed at the wholesale price.'
-                  : 'This order is closed. Nobody has to buy.'}
+                {order.status === 'paid'
+                  ? 'This order is paid.'
+                  : order.status === 'confirmed'
+                    ? 'This order reached the minimum and is confirmed at the wholesale price.'
+                    : 'This order is closed. Nobody has to buy.'}
               </p>
             )}
             {message && <p role="status" className="mt-3 text-sm text-ink-800">{message}</p>}

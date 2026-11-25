@@ -30,6 +30,7 @@ type AppState = {
   loadOrder: (id: string) => Promise<ApiOrder>
   createOrder: (input: { productId: string; moq: number; deadline: string; quantity: number }) => Promise<ApiOrder>
   joinOrder: (id: string, quantity: number) => Promise<ApiOrder>
+  pay: (id: string, shippingAddress: string) => Promise<ApiOrder>
 }
 
 const AppStateContext = createContext<AppState | null>(null)
@@ -37,7 +38,10 @@ const AppStateContext = createContext<AppState | null>(null)
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [user, setUser] = useState<ApiUser | null>(null)
-  const [orders, setOrders] = useState<ApiOrder[]>(initialExampleOrders)
+  const [orders, setOrders] = useState<ApiOrder[]>(() => {
+    if (!exampleMode) return initialExampleOrders()
+    return readJson<ApiOrder[]>(orderKey) ?? initialExampleOrders()
+  })
 
   useEffect(() => {
     if (exampleMode) {
@@ -51,9 +55,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!exampleMode) return
+    if (!exampleMode || !ready) return
     sessionStorage.setItem(orderKey, JSON.stringify(orders))
-  }, [orders])
+  }, [orders, ready])
 
   const value = useMemo<AppState>(() => ({
     ready,
@@ -130,6 +134,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         collectedQty: input.quantity,
         participantCount: 1,
         yourQuantity: input.quantity,
+        yourPaymentStatus: 'unpaid',
+        allPaid: false,
         product,
       }
       setOrders((current) => [created, ...current])
@@ -150,7 +156,31 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         collectedQty,
         participantCount: current.participantCount + 1,
         yourQuantity: quantity,
+        yourPaymentStatus: 'unpaid',
+        allPaid: false,
         status: collectedQty >= current.moq ? 'confirmed' : 'open',
+      }
+      setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
+      return updated
+    },
+    async pay(id, shippingAddress) {
+      if (!user) throw new ApiError(401, 'Authentication required')
+      const address = shippingAddress.trim()
+      if (!address) {
+        throw new ApiError(422, 'Check the highlighted fields', { shippingAddress: 'Enter a shipping address' })
+      }
+      if (!exampleMode) return api.pay(id, address)
+      const current = orders.find((item) => item.id === id)
+      if (!current) throw new ApiError(404, 'Order not found')
+      if (current.status !== 'confirmed') throw new ApiError(400, 'This order is not ready for payment')
+      if (!current.yourQuantity) throw new ApiError(403, 'You are not part of this order')
+      if (current.yourPaymentStatus === 'paid') throw new ApiError(409, 'This order is already paid')
+      const allPaid = current.participantCount <= 1
+      const updated: ApiOrder = {
+        ...current,
+        yourPaymentStatus: 'paid',
+        allPaid,
+        status: allPaid ? 'paid' : 'confirmed',
       }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
       return updated

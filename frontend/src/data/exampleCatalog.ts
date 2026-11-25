@@ -105,6 +105,8 @@ function order(
     collectedQty,
     participantCount,
     yourQuantity: null,
+    yourPaymentStatus: null,
+    allPaid: false,
     product: item,
   }
 }
