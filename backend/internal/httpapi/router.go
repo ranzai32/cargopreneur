@@ -89,6 +89,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			if cfg.Orders != nil {
 				r.Get("/orders", admin.ListOrders)
 				r.Post("/orders/{id}/cancel", admin.CancelOrder)
+				r.Post("/participations/{id}/ship", admin.ShipParticipation)
+				r.Post("/participations/{id}/deliver", admin.DeliverParticipation)
 			}
 		})
 	}

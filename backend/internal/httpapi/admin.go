@@ -152,3 +152,46 @@ func (h AdminHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, order.JSON())
 }
+
+func (h AdminHandler) ShipParticipation(w http.ResponseWriter, r *http.Request) {
+	h.updateShipment(w, r, true)
+}
+
+func (h AdminHandler) DeliverParticipation(w http.ResponseWriter, r *http.Request) {
+	h.updateShipment(w, r, false)
+}
+
+func (h AdminHandler) updateShipment(w http.ResponseWriter, r *http.Request, ship bool) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	ctx := domain.WithNoticeLog(r.Context())
+	var order domain.Order
+	var err error
+	if ship {
+		order, err = h.orders.ShipParticipation(ctx, id, &user.ID)
+	} else {
+		order, err = h.orders.DeliverParticipation(ctx, id, &user.ID)
+	}
+	dispatchNotices(ctx, h.notifier)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Participation not found", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrShipmentNotUpdatable) {
+		writeError(w, http.StatusBadRequest, "This shipment cannot be updated", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("update shipment", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, order.JSON())
+}

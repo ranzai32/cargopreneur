@@ -20,6 +20,8 @@ type OrderStore interface {
 	JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quantity int) (domain.Order, error)
 	PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error)
 	CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
+	ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
+	DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 }
 
 type OrderHandler struct {

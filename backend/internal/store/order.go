@@ -39,6 +39,7 @@ const orderSelectSQL = `
 	       COUNT(p.id)::int,
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.quantity END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.payment_status END),
+	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.delivery_status END),
 	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
 	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at,
 	       s.id, s.name, s.region, s.is_verified
@@ -346,6 +347,121 @@ func (s *Store) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UU
 	return order, nil
 }
 
+func (s *Store) ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return s.updateDelivery(ctx, participationID, viewerID, domain.DeliveryShipped)
+}
+
+func (s *Store) DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return s.updateDelivery(ctx, participationID, viewerID, domain.DeliveryDelivered)
+}
+
+func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID, next string) (domain.Order, error) {
+	var order domain.Order
+	var rejected error
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		var orderID uuid.UUID
+		err := tx.QueryRow(ctx, `
+			SELECT order_id
+			FROM order_participations
+			WHERE id = $1
+		`, participationID).Scan(&orderID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("find participation: %w", err)
+		}
+		head, err := lockOrder(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		collected, userIDs, err := participationSummary(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		notices, err := settleHead(ctx, tx, &head, collected, userIDs, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		var userID uuid.UUID
+		var paymentStatus string
+		var deliveryStatus string
+		err = tx.QueryRow(ctx, `
+			SELECT user_id, payment_status, delivery_status
+			FROM order_participations
+			WHERE id = $1
+			FOR UPDATE
+		`, participationID).Scan(&userID, &paymentStatus, &deliveryStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock participation: %w", err)
+		}
+		if !domain.ShipmentUpdateAllowed(head.Status, paymentStatus, deliveryStatus, next) {
+			rejected = domain.ErrShipmentNotUpdatable
+			return notices, nil
+		}
+		now := time.Now().UTC()
+		if next == domain.DeliveryShipped {
+			if _, err := tx.Exec(ctx, `
+				UPDATE order_participations
+				SET delivery_status = $2, shipped_at = $3
+				WHERE id = $1
+			`, participationID, domain.DeliveryShipped, now); err != nil {
+				return nil, fmt.Errorf("mark participation shipped: %w", err)
+			}
+			notices = append(notices, domain.Notice{
+				Kind:    domain.NoticeShipmentSent,
+				OrderID: orderID,
+				UserIDs: []uuid.UUID{userID},
+			})
+		} else {
+			if _, err := tx.Exec(ctx, `
+				UPDATE order_participations
+				SET delivery_status = $2, shipped_at = COALESCE(shipped_at, $3), delivered_at = $3
+				WHERE id = $1
+			`, participationID, domain.DeliveryDelivered, now); err != nil {
+				return nil, fmt.Errorf("mark participation delivered: %w", err)
+			}
+			var remaining int
+			if err := tx.QueryRow(ctx, `
+				SELECT COUNT(*)::int
+				FROM order_participations
+				WHERE order_id = $1 AND delivery_status <> $2
+			`, orderID, domain.DeliveryDelivered).Scan(&remaining); err != nil {
+				return nil, fmt.Errorf("count undelivered participations: %w", err)
+			}
+			if remaining == 0 {
+				if err := updateOrderStatus(ctx, tx, orderID, domain.OrderCompleted); err != nil {
+					return nil, err
+				}
+			}
+			notices = append(notices, domain.Notice{
+				Kind:    domain.NoticeShipmentDelivered,
+				OrderID: orderID,
+				UserIDs: []uuid.UUID{userID},
+			})
+		}
+		loaded, err := selectOrders(ctx, tx, "", viewerID, &orderID)
+		if err != nil {
+			return nil, err
+		}
+		if len(loaded) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		order = loaded[0]
+		return notices, nil
+	})
+	if err != nil {
+		return domain.Order{}, err
+	}
+	if rejected != nil {
+		return domain.Order{}, rejected
+	}
+	return order, nil
+}
+
 func (s *Store) withOrderTx(ctx context.Context, fn func(tx pgx.Tx) ([]domain.Notice, error)) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -513,7 +629,50 @@ func selectOrders(ctx context.Context, db orderDB, status string, viewerID *uuid
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list orders: %w", err)
 	}
-	return attachOrderTiers(ctx, db, orders)
+	withTiers, err := attachOrderTiers(ctx, db, orders)
+	if err != nil {
+		return nil, err
+	}
+	return attachParticipants(ctx, db, withTiers)
+}
+
+func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) ([]domain.Order, error) {
+	ids := make([]uuid.UUID, len(orders))
+	index := make(map[uuid.UUID]int, len(orders))
+	for i := range orders {
+		ids[i] = orders[i].ID
+		index[orders[i].ID] = i
+		orders[i].Participants = []domain.Participation{}
+	}
+	if len(ids) == 0 {
+		return orders, nil
+	}
+	rows, err := db.Query(ctx, `
+		SELECT id, order_id, quantity, shipping_address, payment_status, delivery_status
+		FROM order_participations
+		WHERE order_id = ANY($1)
+		ORDER BY created_at ASC, id ASC
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list participations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderID uuid.UUID
+		var part domain.Participation
+		if err := rows.Scan(&part.ID, &orderID, &part.Quantity, &part.ShippingAddress, &part.PaymentStatus, &part.DeliveryStatus); err != nil {
+			return nil, fmt.Errorf("scan participation: %w", err)
+		}
+		slot, ok := index[orderID]
+		if !ok {
+			continue
+		}
+		orders[slot].Participants = append(orders[slot].Participants, part)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list participations: %w", err)
+	}
+	return orders, nil
 }
 
 func attachOrderTiers(ctx context.Context, db orderDB, orders []domain.Order) ([]domain.Order, error) {
@@ -552,6 +711,7 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.ParticipantCount,
 		&order.YourQuantity,
 		&order.YourPaymentStatus,
+		&order.YourDeliveryStatus,
 		&order.AllPaid,
 		&order.Product.ID,
 		&order.Product.Name,

@@ -7,9 +7,11 @@ import (
 )
 
 const (
-	NoticeOrderConfirmed  = "order_confirmed"
-	NoticeOrderCancelled  = "order_cancelled"
-	NoticePaymentReceived = "payment_received"
+	NoticeOrderConfirmed    = "order_confirmed"
+	NoticeOrderCancelled    = "order_cancelled"
+	NoticePaymentReceived   = "payment_received"
+	NoticeShipmentSent      = "shipment_sent"
+	NoticeShipmentDelivered = "shipment_delivered"
 )
 
 type Notice struct {

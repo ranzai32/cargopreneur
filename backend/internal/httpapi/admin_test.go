@@ -29,6 +29,8 @@ func TestAdminRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, "/admin/suppliers", nil},
 		{http.MethodGet, "/admin/orders", nil},
 		{http.MethodPost, "/admin/orders/" + missing + "/cancel", nil},
+		{http.MethodPost, "/admin/participations/" + missing + "/ship", nil},
+		{http.MethodPost, "/admin/participations/" + missing + "/deliver", nil},
 	}
 	for _, call := range calls {
 		body, _ := request(t, router, call.method, call.path, call.body, nil, http.StatusUnauthorized)
@@ -278,6 +280,145 @@ func TestAdminCancelsOpenOrder(t *testing.T) {
 	missing, _ := request(t, router, http.MethodPost, "/admin/orders/"+uuid.NewString()+"/cancel", nil, admin, http.StatusNotFound)
 	if missing["message"] != "Order not found" {
 		t.Fatalf("missing = %#v", missing)
+	}
+}
+
+func TestAdminTracksDelivery(t *testing.T) {
+	orders := newMemOrders()
+	notices := &captureNotifier{}
+	users := newFakeUsers()
+	router, tokens := adminRouter(sampleCatalog(), orders, users, notices)
+	payer, payerCookie := signedIn(t, users, tokens, domain.RoleBusiness, "ship-payer@harbor.example")
+	partner, partnerCookie := signedIn(t, users, tokens, domain.RoleBusiness, "ship-partner@harbor.example")
+	_, businessCookie := signedIn(t, users, tokens, domain.RoleBusiness, "ship-business@harbor.example")
+	_, adminCookie := signedIn(t, users, tokens, domain.RoleAdmin, "ship-admin@harbor.example")
+
+	future := time.Date(2099, 4, 1, 23, 59, 59, 0, time.UTC)
+	paidID := uuid.MustParse("dddddddd-dddd-4ddd-8ddd-ddddddddddd1")
+	earlyID := uuid.MustParse("dddddddd-dddd-4ddd-8ddd-ddddddddddd2")
+	unpaidOrderID := uuid.MustParse("dddddddd-dddd-4ddd-8ddd-ddddddddddd3")
+	payerPart := uuid.MustParse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1")
+	partnerPart := uuid.MustParse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2")
+	earlyPart := uuid.MustParse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3")
+	unpaidPart := uuid.MustParse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4")
+	orders.seed(storedOrder{
+		id: paidID, productID: towelID, status: domain.OrderPaid, moq: 10, deadline: future,
+		createdAt: time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC),
+		parts: []participation{
+			{id: payerPart, userID: payer.ID, quantity: 6, paymentStatus: domain.PaymentPaid, shippingAddress: "12 Dock Street", deliveryStatus: domain.DeliveryPending},
+			{id: partnerPart, userID: partner.ID, quantity: 4, paymentStatus: domain.PaymentPaid, shippingAddress: "4 Market Street", deliveryStatus: domain.DeliveryPending},
+		},
+	})
+	orders.seed(storedOrder{
+		id: earlyID, productID: mailerID, status: domain.OrderConfirmed, moq: 10, deadline: future,
+		createdAt: time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC),
+		parts: []participation{
+			{id: earlyPart, userID: payer.ID, quantity: 6, paymentStatus: domain.PaymentPaid, shippingAddress: "12 Dock Street", deliveryStatus: domain.DeliveryPending},
+		},
+	})
+	orders.seed(storedOrder{
+		id: unpaidOrderID, productID: cleanerID, status: domain.OrderPaid, moq: 8, deadline: future,
+		createdAt: time.Date(2026, 11, 19, 15, 0, 0, 0, time.UTC),
+		parts: []participation{
+			{id: unpaidPart, userID: partner.ID, quantity: 8, paymentStatus: domain.PaymentUnpaid, deliveryStatus: domain.DeliveryPending},
+		},
+	})
+
+	forbidden, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/ship", nil, businessCookie, http.StatusForbidden)
+	if forbidden["message"] != "You do not have access to this" {
+		t.Fatalf("forbidden = %#v", forbidden)
+	}
+	if len(notices.list()) != 0 {
+		t.Fatalf("notices after forbidden = %#v", notices.list())
+	}
+
+	earlyDeliver, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/deliver", nil, adminCookie, http.StatusBadRequest)
+	if earlyDeliver["message"] != "This shipment cannot be updated" {
+		t.Fatalf("deliver before ship = %#v", earlyDeliver)
+	}
+	earlyShip, _ := request(t, router, http.MethodPost, "/admin/participations/"+earlyPart.String()+"/ship", nil, adminCookie, http.StatusBadRequest)
+	if earlyShip["message"] != "This shipment cannot be updated" {
+		t.Fatalf("ship before paid order = %#v", earlyShip)
+	}
+	unpaidShip, _ := request(t, router, http.MethodPost, "/admin/participations/"+unpaidPart.String()+"/ship", nil, adminCookie, http.StatusBadRequest)
+	if unpaidShip["message"] != "This shipment cannot be updated" {
+		t.Fatalf("unpaid ship = %#v", unpaidShip)
+	}
+	if len(notices.list()) != 0 {
+		t.Fatalf("notices after rejected ships = %#v", notices.list())
+	}
+
+	shipped, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/ship", nil, adminCookie, http.StatusOK)
+	assertOrderShape(t, shipped)
+	if shipped["status"] != domain.OrderPaid || shipped["yourDeliveryStatus"] != nil || shipped["allPaid"] != true {
+		t.Fatalf("shipped order = %#v", shipped)
+	}
+	payerShipment := findParticipation(t, shipped, payerPart.String())
+	if payerShipment["deliveryStatus"] != domain.DeliveryShipped || payerShipment["shippingAddress"] != "12 Dock Street" || payerShipment["paymentStatus"] != domain.PaymentPaid || intField(t, payerShipment, "quantity") != 6 {
+		t.Fatalf("payer shipment = %#v", payerShipment)
+	}
+	if findParticipation(t, shipped, partnerPart.String())["deliveryStatus"] != domain.DeliveryPending {
+		t.Fatalf("partner still pending = %#v", shipped["participants"])
+	}
+	recorded := notices.list()
+	if len(recorded) != 1 || recorded[0].Kind != domain.NoticeShipmentSent || recorded[0].OrderID != paidID || len(recorded[0].UserIDs) != 1 || recorded[0].UserIDs[0] != payer.ID {
+		t.Fatalf("ship notice = %#v", recorded)
+	}
+
+	payerView, _ := request(t, router, http.MethodGet, "/orders/"+paidID.String(), nil, payerCookie, http.StatusOK)
+	if payerView["yourDeliveryStatus"] != domain.DeliveryShipped || payerView["yourPaymentStatus"] != domain.PaymentPaid {
+		t.Fatalf("payer view = %#v", payerView)
+	}
+	partnerView, _ := request(t, router, http.MethodGet, "/orders/"+paidID.String(), nil, partnerCookie, http.StatusOK)
+	if partnerView["yourDeliveryStatus"] != domain.DeliveryPending {
+		t.Fatalf("partner view = %#v", partnerView)
+	}
+	strangerView, _ := request(t, router, http.MethodGet, "/orders/"+paidID.String(), nil, businessCookie, http.StatusOK)
+	if strangerView["yourDeliveryStatus"] != nil || strangerView["yourPaymentStatus"] != nil {
+		t.Fatalf("stranger view = %#v", strangerView)
+	}
+
+	again, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/ship", nil, adminCookie, http.StatusBadRequest)
+	if again["message"] != "This shipment cannot be updated" || len(notices.list()) != 1 {
+		t.Fatalf("second ship = %#v notices = %#v", again, notices.list())
+	}
+
+	delivered, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/deliver", nil, adminCookie, http.StatusOK)
+	assertOrderShape(t, delivered)
+	if delivered["status"] != domain.OrderPaid || findParticipation(t, delivered, payerPart.String())["deliveryStatus"] != domain.DeliveryDelivered {
+		t.Fatalf("partial delivery = %#v", delivered)
+	}
+	recorded = notices.list()
+	if len(recorded) != 2 || recorded[1].Kind != domain.NoticeShipmentDelivered || recorded[1].OrderID != paidID || len(recorded[1].UserIDs) != 1 || recorded[1].UserIDs[0] != payer.ID {
+		t.Fatalf("deliver notice = %#v", recorded)
+	}
+	repeatDeliver, _ := request(t, router, http.MethodPost, "/admin/participations/"+payerPart.String()+"/deliver", nil, adminCookie, http.StatusBadRequest)
+	if repeatDeliver["message"] != "This shipment cannot be updated" || len(notices.list()) != 2 {
+		t.Fatalf("second deliver = %#v", repeatDeliver)
+	}
+
+	partnerShipped, _ := request(t, router, http.MethodPost, "/admin/participations/"+partnerPart.String()+"/ship", nil, adminCookie, http.StatusOK)
+	if partnerShipped["status"] != domain.OrderPaid || findParticipation(t, partnerShipped, partnerPart.String())["deliveryStatus"] != domain.DeliveryShipped {
+		t.Fatalf("partner ship = %#v", partnerShipped)
+	}
+	completed, _ := request(t, router, http.MethodPost, "/admin/participations/"+partnerPart.String()+"/deliver", nil, adminCookie, http.StatusOK)
+	assertOrderShape(t, completed)
+	if completed["status"] != domain.OrderCompleted || findParticipation(t, completed, partnerPart.String())["deliveryStatus"] != domain.DeliveryDelivered || findParticipation(t, completed, payerPart.String())["deliveryStatus"] != domain.DeliveryDelivered {
+		t.Fatalf("completed = %#v", completed)
+	}
+	recorded = notices.list()
+	if len(recorded) != 4 || recorded[2].Kind != domain.NoticeShipmentSent || recorded[2].UserIDs[0] != partner.ID || recorded[3].Kind != domain.NoticeShipmentDelivered || recorded[3].UserIDs[0] != partner.ID {
+		t.Fatalf("notices = %#v", recorded)
+	}
+
+	missing, _ := request(t, router, http.MethodPost, "/admin/participations/"+uuid.NewString()+"/ship", nil, adminCookie, http.StatusNotFound)
+	if missing["message"] != "Participation not found" {
+		t.Fatalf("missing = %#v", missing)
+	}
+	listed, _ := requestList(t, router, "/admin/orders", adminCookie, http.StatusOK)
+	adminPaid := findOrder(t, listed, unpaidOrderID.String())
+	if findParticipation(t, adminPaid, unpaidPart.String())["deliveryStatus"] != domain.DeliveryPending || findOrder(t, listed, earlyID.String())["status"] != domain.OrderConfirmed {
+		t.Fatalf("unchanged orders = %#v", listed)
 	}
 }
 

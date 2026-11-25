@@ -454,7 +454,7 @@ func signedIn(t *testing.T, users *fakeUsers, tokens *auth.Tokens, role, email s
 
 func assertOrderShape(t *testing.T, order map[string]any) {
 	t.Helper()
-	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "id", "moq", "participantCount", "product", "status", "yourPaymentStatus", "yourQuantity"}
+	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity"}
 	if !sameStrings(mapKeys(order), want) {
 		t.Fatalf("order keys = %#v", mapKeys(order))
 	}
@@ -480,6 +480,30 @@ func assertOrderShape(t *testing.T, order map[string]any) {
 	if _, ok := tiers[0].(map[string]any)["unitPrice"].(float64); !ok {
 		t.Fatalf("unitPrice = %#v", tiers[0])
 	}
+	parts, ok := order["participants"].([]any)
+	if !ok || len(parts) == 0 {
+		t.Fatalf("participants = %#v", order["participants"])
+	}
+	part, ok := parts[0].(map[string]any)
+	if !ok || !sameStrings(mapKeys(part), []string{"deliveryStatus", "id", "paymentStatus", "quantity", "shippingAddress"}) {
+		t.Fatalf("participation = %#v", parts[0])
+	}
+}
+
+func findParticipation(t *testing.T, order map[string]any, id string) map[string]any {
+	t.Helper()
+	parts, ok := order["participants"].([]any)
+	if !ok {
+		t.Fatalf("participants = %#v", order["participants"])
+	}
+	for _, item := range parts {
+		part := item.(map[string]any)
+		if part["id"] == id {
+			return part
+		}
+	}
+	t.Fatalf("participation %s missing", id)
+	return nil
 }
 
 func findOrder(t *testing.T, items []any, id string) map[string]any {
@@ -521,11 +545,15 @@ func mapKeys(value map[string]any) []string {
 }
 
 type participation struct {
+	id              uuid.UUID
 	userID          uuid.UUID
 	quantity        int
 	paymentStatus   string
 	paidAt          *time.Time
 	shippingAddress string
+	deliveryStatus  string
+	shippedAt       *time.Time
+	deliveredAt     *time.Time
 }
 
 type storedOrder struct {
@@ -554,6 +582,17 @@ func (m *memOrders) seed(order storedOrder) {
 	defer m.mu.Unlock()
 	copied := order
 	copied.parts = append([]participation(nil), order.parts...)
+	for i := range copied.parts {
+		if copied.parts[i].id == uuid.Nil {
+			copied.parts[i].id = uuid.New()
+		}
+		if copied.parts[i].paymentStatus == "" {
+			copied.parts[i].paymentStatus = domain.PaymentUnpaid
+		}
+		if copied.parts[i].deliveryStatus == "" {
+			copied.parts[i].deliveryStatus = domain.DeliveryPending
+		}
+	}
 	m.orders = append(m.orders, &copied)
 }
 
@@ -612,7 +651,10 @@ func (m *memOrders) CreateOrder(ctx context.Context, input domain.NewOrder) (dom
 		moq:       input.MOQ,
 		deadline:  input.Deadline,
 		createdAt: time.Now().UTC(),
-		parts:     []participation{{userID: input.CreatorID, quantity: input.Quantity, paymentStatus: domain.PaymentUnpaid}},
+		parts: []participation{{
+			id: uuid.New(), userID: input.CreatorID, quantity: input.Quantity,
+			paymentStatus: domain.PaymentUnpaid, deliveryStatus: domain.DeliveryPending,
+		}},
 	}
 	m.orders = append(m.orders, order)
 	if status == domain.OrderConfirmed {
@@ -641,7 +683,10 @@ func (m *memOrders) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, qu
 			return domain.Order{}, domain.ErrAlreadyJoined
 		}
 	}
-	order.parts = append(order.parts, participation{userID: userID, quantity: quantity, paymentStatus: domain.PaymentUnpaid})
+	order.parts = append(order.parts, participation{
+		id: uuid.New(), userID: userID, quantity: quantity,
+		paymentStatus: domain.PaymentUnpaid, deliveryStatus: domain.DeliveryPending,
+	})
 	if collectedQuantity(order) >= order.moq {
 		order.status = domain.OrderConfirmed
 		domain.AddNotice(ctx, domain.Notice{
@@ -712,6 +757,50 @@ func (m *memOrders) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uui
 	return m.view(order, viewerID)
 }
 
+func (m *memOrders) ShipParticipation(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return m.advanceDelivery(ctx, id, viewerID, domain.DeliveryShipped)
+}
+
+func (m *memOrders) DeliverParticipation(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return m.advanceDelivery(ctx, id, viewerID, domain.DeliveryDelivered)
+}
+
+func (m *memOrders) advanceDelivery(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID, next string) (domain.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order, index := m.findParticipation(id)
+	if order == nil || index < 0 {
+		return domain.Order{}, domain.ErrNotFound
+	}
+	m.settle(ctx, order, time.Now().UTC())
+	part := &order.parts[index]
+	if !domain.ShipmentUpdateAllowed(order.status, participationStatus(*part), deliveryStatusOf(*part), next) {
+		return domain.Order{}, domain.ErrShipmentNotUpdatable
+	}
+	now := time.Now().UTC()
+	kind := domain.NoticeShipmentSent
+	if next == domain.DeliveryShipped {
+		part.deliveryStatus = domain.DeliveryShipped
+		part.shippedAt = &now
+	} else {
+		part.deliveryStatus = domain.DeliveryDelivered
+		if part.shippedAt == nil {
+			part.shippedAt = &now
+		}
+		part.deliveredAt = &now
+		if allParticipationsDelivered(order) {
+			order.status = domain.OrderCompleted
+		}
+		kind = domain.NoticeShipmentDelivered
+	}
+	domain.AddNotice(ctx, domain.Notice{
+		Kind:    kind,
+		OrderID: order.id,
+		UserIDs: []uuid.UUID{part.userID},
+	})
+	return m.view(order, viewerID)
+}
+
 func (m *memOrders) settle(ctx context.Context, order *storedOrder, now time.Time) {
 	next, changed := domain.NextOrderStatus(order.status, order.deadline, collectedQuantity(order), order.moq, now)
 	if !changed {
@@ -742,16 +831,37 @@ func (m *memOrders) find(id uuid.UUID) *storedOrder {
 	return nil
 }
 
+func (m *memOrders) findParticipation(id uuid.UUID) (*storedOrder, int) {
+	for _, order := range m.orders {
+		for index := range order.parts {
+			if order.parts[index].id == id {
+				return order, index
+			}
+		}
+	}
+	return nil, -1
+}
+
 func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order, error) {
 	product, ok := m.productByID(order.productID)
 	if !ok {
 		return domain.Order{}, domain.ErrNotFound
 	}
+	participants := make([]domain.Participation, 0, len(order.parts))
 	var yours *int
 	var payment *string
+	var delivery *string
 	allPaid := len(order.parts) > 0
 	for _, part := range order.parts {
 		status := participationStatus(part)
+		shipped := deliveryStatusOf(part)
+		participants = append(participants, domain.Participation{
+			ID:              part.id,
+			Quantity:        part.quantity,
+			ShippingAddress: part.shippingAddress,
+			PaymentStatus:   status,
+			DeliveryStatus:  shipped,
+		})
 		if status != domain.PaymentPaid {
 			allPaid = false
 		}
@@ -760,21 +870,25 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 			yours = &quantity
 			statusCopy := status
 			payment = &statusCopy
+			deliveryCopy := shipped
+			delivery = &deliveryCopy
 		}
 	}
 	return domain.Order{
-		ID:                order.id,
-		ProductID:         order.productID,
-		Status:            order.status,
-		MOQ:               order.moq,
-		Deadline:          order.deadline,
-		CreatedAt:         order.createdAt,
-		CollectedQty:      collectedQuantity(order),
-		ParticipantCount:  len(order.parts),
-		YourQuantity:      yours,
-		YourPaymentStatus: payment,
-		AllPaid:           allPaid,
-		Product:           product,
+		ID:                 order.id,
+		ProductID:          order.productID,
+		Status:             order.status,
+		MOQ:                order.moq,
+		Deadline:           order.deadline,
+		CreatedAt:          order.createdAt,
+		CollectedQty:       collectedQuantity(order),
+		ParticipantCount:   len(order.parts),
+		YourQuantity:       yours,
+		YourPaymentStatus:  payment,
+		YourDeliveryStatus: delivery,
+		AllPaid:            allPaid,
+		Participants:       participants,
+		Product:            product,
 	}, nil
 }
 
@@ -800,6 +914,25 @@ func participationStatus(part participation) string {
 		return domain.PaymentUnpaid
 	}
 	return part.paymentStatus
+}
+
+func deliveryStatusOf(part participation) string {
+	if part.deliveryStatus == "" {
+		return domain.DeliveryPending
+	}
+	return part.deliveryStatus
+}
+
+func allParticipationsDelivered(order *storedOrder) bool {
+	if len(order.parts) == 0 {
+		return false
+	}
+	for _, part := range order.parts {
+		if deliveryStatusOf(part) != domain.DeliveryDelivered {
+			return false
+		}
+	}
+	return true
 }
 
 func allParticipationsPaid(order *storedOrder) bool {

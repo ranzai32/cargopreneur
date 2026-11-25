@@ -27,6 +27,12 @@ export function daysUntil(isoDate: string, now = new Date()): number {
   return Math.ceil(diff / 86_400_000)
 }
 
+export function formatDeliveryStatus(status: 'pending' | 'shipped' | 'delivered' | null | undefined): string {
+  if (status === 'shipped') return 'Shipped'
+  if (status === 'delivered') return 'Delivered'
+  return 'Pending'
+}
+
 export function formatDaysLeft(days: number): string {
   if (days <= 0) return 'Deadline passed'
   if (days === 1) return '1 day left'
