@@ -375,6 +375,7 @@ func (m *memCatalog) CreateProduct(_ context.Context, input domain.NewProduct) (
 			IsVerified: supplier.IsVerified,
 		},
 		PriceTiers: append([]domain.PriceTier(nil), input.PriceTiers...),
+		ImageURL:   domain.ImagePointer(input.ImageURL),
 		CreatedAt:  time.Now().UTC(),
 	}
 	m.products = append(m.products, product)

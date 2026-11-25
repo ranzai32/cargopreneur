@@ -37,6 +37,8 @@ export const api = {
     request<ApiOrder>(`/orders/${id}/join`, { method: 'POST', body: { quantity } }),
   pay: (id: string, shippingAddress: string) =>
     request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body: { shippingAddress } }),
+  addresses: (q: string) => request<{ items: string[] }>(`/addresses?q=${encodeURIComponent(q)}`),
+  uploadPhoto: (file: File) => uploadFile(file),
   adminSuppliers: () => request<ApiSupplier[]>('/admin/suppliers'),
   createSupplier: (body: { name: string; description: string; region: string }) =>
     request<ApiSupplier>('/admin/suppliers', { method: 'POST', body }),
@@ -49,10 +51,26 @@ export const api = {
     tags: string[]
     unit: string
     retailPrice: number
+    imageUrl?: string
     priceTiers: Array<{ minQty: number; unitPrice: number }>
   }) => request<ApiProduct>('/admin/products', { method: 'POST', body }),
   adminOrders: () => request<ApiOrder[]>('/admin/orders'),
   cancelOrder: (id: string) => request<ApiOrder>(`/admin/orders/${id}/cancel`, { method: 'POST' }),
+}
+
+async function uploadFile(file: File) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch(`${apiBase}/admin/uploads`, {
+    method: 'POST',
+    credentials: 'include',
+    body,
+  })
+  const payload = (await response.json().catch(() => null)) as { url?: string; message?: string } | null
+  if (!response.ok || !payload?.url) {
+    throw new ApiError(response.status, payload?.message || 'Photo could not be uploaded')
+  }
+  return payload.url
 }
 
 async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {

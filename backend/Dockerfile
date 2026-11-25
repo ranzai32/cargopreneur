@@ -6,8 +6,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates su-exec
 COPY --from=build /out/api /api
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 EXPOSE 8080
-USER nobody
-ENTRYPOINT ["/api"]
+ENTRYPOINT ["/entrypoint.sh"]

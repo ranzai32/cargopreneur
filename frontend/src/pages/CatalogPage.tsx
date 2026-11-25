@@ -6,6 +6,7 @@ import { Container } from '../components/Container'
 import { PageHeader } from '../components/PageHeader'
 import { PageLayout } from '../components/PageLayout'
 import { formatMoney } from '../lib/format'
+import { mediaUrl } from '../lib/media'
 import { openingTier } from '../lib/catalog'
 import { isApiError, useAppState } from '../lib/app-state'
 import type { ProductPage } from '../types/catalog'
@@ -128,6 +129,11 @@ export function CatalogPage() {
               <li key={product.id}>
                 <Link to={`/catalog/${product.id}`} className="block h-full rounded-xl">
                   <Card className="flex h-full flex-col p-5">
+                    {product.imageUrl ? (
+                      <img src={mediaUrl(product.imageUrl)} alt="" className="mb-4 aspect-[4/3] w-full rounded-md object-cover" />
+                    ) : (
+                      <div className="mb-4 flex aspect-[4/3] items-center justify-center rounded-md bg-ink-100 text-sm font-semibold text-ink-600">{product.category}</div>
+                    )}
                     <Badge tone="accent">{product.category}</Badge>
                     <h2 className="mt-3 font-serif text-2xl leading-tight text-ink-950">{product.name}</h2>
                     <p className="mt-2 text-sm text-ink-700">

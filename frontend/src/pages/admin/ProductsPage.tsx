@@ -4,6 +4,8 @@ import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { SelectField, TextField } from '../../components/TextField'
 import { fieldErrorsOf, isApiError, useAppState } from '../../lib/app-state'
+import { api } from '../../lib/api'
+import { mediaUrl } from '../../lib/media'
 import type { ApiSupplier } from '../../types/catalog'
 import { AdminFrame } from './AdminFrame'
 
@@ -32,6 +34,8 @@ function ProductManager() {
   const [tags, setTags] = useState('')
   const [unit, setUnit] = useState('')
   const [retailPrice, setRetailPrice] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [preview, setPreview] = useState('')
   const [tiers, setTiers] = useState<TierDraft[]>([emptyTier()])
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
@@ -101,6 +105,7 @@ function ProductManager() {
     if (Object.keys(nextErrors).length > 0) return
     setPending(true)
     try {
+      const imageUrl = photo ? await api.uploadPhoto(photo) : undefined
       const created = await createProduct({
         supplierId,
         name: name.trim(),
@@ -109,6 +114,7 @@ function ProductManager() {
         tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
         unit: unit.trim(),
         retailPrice: Number(retailPrice),
+        imageUrl,
         priceTiers: tiers.map((tier) => ({ minQty: Number(tier.minQty), unitPrice: Number(tier.unitPrice) })),
       })
       setName('')
@@ -117,6 +123,8 @@ function ProductManager() {
       setTags('')
       setUnit('')
       setRetailPrice('')
+      setPhoto(null)
+      setPreview('')
       setTiers([emptyTier()])
       setProblem(false)
       setMessage(`${created.name} was added.`)
@@ -153,6 +161,22 @@ function ProductManager() {
             </option>
           ))}
         </SelectField>
+        <label className="block" htmlFor="product-photo">
+          <span className="text-sm font-semibold text-ink-900">Photo</span>
+          <input
+            id="product-photo"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="mt-1.5 block w-full text-sm text-ink-800"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null
+              setPhoto(file)
+              setPreview(file ? URL.createObjectURL(file) : '')
+            }}
+          />
+          {fieldErrors.imageUrl && <span className="mt-1 block text-sm text-danger">{fieldErrors.imageUrl}</span>}
+          {preview && <img src={mediaUrl(preview)} alt="" className="mt-3 aspect-[4/3] w-full rounded-md object-cover" />}
+        </label>
         <TextField id="product-name" label="Name" value={name} error={fieldErrors.name} onChange={(event) => setName(event.target.value)} />
         <TextField id="product-description" label="Description" value={description} error={fieldErrors.description} onChange={(event) => setDescription(event.target.value)} />
         <TextField id="product-category" label="Category" value={category} error={fieldErrors.category} onChange={(event) => setCategory(event.target.value)} />

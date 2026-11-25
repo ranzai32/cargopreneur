@@ -42,6 +42,7 @@ type Product struct {
 	Tags        []string
 	Unit        string
 	RetailPrice float64
+	ImageURL    *string
 	Supplier    SupplierBrief
 	PriceTiers  []PriceTier
 	CreatedAt   time.Time
@@ -81,6 +82,7 @@ type ProductJSON struct {
 	Tags        []string          `json:"tags"`
 	Unit        string            `json:"unit"`
 	RetailPrice float64           `json:"retailPrice"`
+	ImageURL    *string           `json:"imageUrl"`
 	Supplier    SupplierBriefJSON `json:"supplier"`
 	PriceTiers  []PriceTierJSON   `json:"priceTiers"`
 	CreatedAt   time.Time         `json:"createdAt"`
@@ -104,6 +106,14 @@ type ProductQuery struct {
 	Page              int
 	PageSize          int
 	IncludeUnverified bool
+}
+
+func ImagePointer(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (p Product) JSON() ProductJSON {
@@ -130,6 +140,7 @@ func (p Product) JSON() ProductJSON {
 		Tags:        tags,
 		Unit:        p.Unit,
 		RetailPrice: p.RetailPrice,
+		ImageURL:    p.ImageURL,
 		Supplier: SupplierBriefJSON{
 			ID:         p.Supplier.ID,
 			Name:       p.Supplier.Name,

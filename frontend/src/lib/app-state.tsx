@@ -30,6 +30,7 @@ type ProductInput = {
   tags: string[]
   unit: string
   retailPrice: number
+  imageUrl?: string
   priceTiers: Array<{ minQty: number; unitPrice: number }>
 }
 
@@ -263,6 +264,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         tags: input.tags,
         unit: input.unit.trim(),
         retailPrice: input.retailPrice,
+        imageUrl: input.imageUrl ?? null,
         supplier: {
           id: supplier.id,
           name: supplier.name,

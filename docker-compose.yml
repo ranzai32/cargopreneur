@@ -18,6 +18,8 @@ services:
   api:
     build: ./backend
     env_file: .env
+    volumes:
+      - uploads:/var/lib/cargopreneur/uploads
     ports:
       - "8080:8080"
     depends_on:
@@ -31,3 +33,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

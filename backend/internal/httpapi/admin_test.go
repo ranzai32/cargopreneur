@@ -311,7 +311,7 @@ func assertSupplierShape(t *testing.T, supplier map[string]any) {
 
 func assertProductShape(t *testing.T, product map[string]any) {
 	t.Helper()
-	if !sameStrings(mapKeys(product), []string{"category", "createdAt", "description", "id", "name", "priceTiers", "retailPrice", "supplier", "tags", "unit"}) {
+	if !sameStrings(mapKeys(product), []string{"category", "createdAt", "description", "id", "imageUrl", "name", "priceTiers", "retailPrice", "supplier", "tags", "unit"}) {
 		t.Fatalf("product keys = %#v", mapKeys(product))
 	}
 	supplier, ok := product["supplier"].(map[string]any)

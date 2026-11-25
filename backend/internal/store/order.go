@@ -40,7 +40,7 @@ const orderSelectSQL = `
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.quantity END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.payment_status END),
 	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
-	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at,
+	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at, pr.image_url,
 	       s.id, s.name, s.region, s.is_verified
 	FROM orders o
 	JOIN products pr ON pr.id = o.product_id
@@ -561,6 +561,7 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.Product.Unit,
 		&order.Product.RetailPrice,
 		&order.Product.CreatedAt,
+		&order.Product.ImageURL,
 		&order.Product.Supplier.ID,
 		&order.Product.Supplier.Name,
 		&order.Product.Supplier.Region,

@@ -5,11 +5,12 @@ import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { ProgressBar } from '../components/ProgressBar'
-import { TextField } from '../components/TextField'
+import { AddressField } from '../components/AddressField'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
 import { daysUntil, formatDaysLeft, formatMoney, formatNumber, formatQuantity } from '../lib/format'
+import { mediaUrl } from '../lib/media'
 import type { ApiOrder } from '../types/catalog'
 
 export function OrderPage() {
@@ -107,6 +108,9 @@ export function OrderPage() {
               <StatusBadge status={order.status} />
               <span className="text-sm text-ink-700">{formatDaysLeft(daysUntil(order.deadline.slice(0, 10)))}</span>
             </div>
+            {order.product.imageUrl && (
+              <img src={mediaUrl(order.product.imageUrl)} alt="" className="mt-4 aspect-[4/3] max-w-sm rounded-xl object-cover" />
+            )}
             <h1 className="mt-3 font-serif text-4xl leading-tight text-ink-950">{order.product.name}</h1>
             <p className="mt-3 text-ink-700">
               <Link to={`/catalog/${order.product.id}`} className="font-semibold text-accent-800">{order.product.supplier.name}</Link>
@@ -126,13 +130,12 @@ export function OrderPage() {
                 <p className="text-ink-700">You joined with {formatQuantity(order.yourQuantity, order.product.unit)}.</p>
                 {canPay && (
                   <div className="mt-4">
-                    <TextField
+                    <AddressField
                       id="shipping-address"
                       label="Shipping address"
                       value={address}
                       error={addressError}
-                      autoComplete="street-address"
-                      onChange={(event) => setAddress(event.target.value)}
+                      onChange={setAddress}
                     />
                     <p className="mt-3 text-sm text-ink-700">This records a simulated payment. No card is charged.</p>
                     <Button className="mt-4 w-full" disabled={pending} onClick={handlePay}>

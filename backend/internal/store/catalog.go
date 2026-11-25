@@ -36,7 +36,7 @@ func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) ([]
 
 	listArgs := append(append([]any{}, args...), query.PageSize, (query.Page-1)*query.PageSize)
 	listSQL := fmt.Sprintf(`
-		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at,
+		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at, p.image_url,
 		       s.id, s.name, s.region, s.is_verified
 		FROM products p
 		JOIN suppliers s ON s.id = p.supplier_id
@@ -79,7 +79,7 @@ func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) ([]
 
 func (s *Store) FindProduct(ctx context.Context, id uuid.UUID, includeUnverified bool) (domain.Product, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at,
+		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at, p.image_url,
 		       s.id, s.name, s.region, s.is_verified
 		FROM products p
 		JOIN suppliers s ON s.id = p.supplier_id
@@ -208,10 +208,10 @@ func (s *Store) CreateProduct(ctx context.Context, input domain.NewProduct) (dom
 	}
 	var product domain.Product
 	err = tx.QueryRow(ctx, `
-		INSERT INTO products (supplier_id, name, description, category, tags, unit, retail_price)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, name, description, category, tags, unit, retail_price::float8, created_at
-	`, input.SupplierID, input.Name, input.Description, input.Category, tags, input.Unit, input.RetailPrice).Scan(
+		INSERT INTO products (supplier_id, name, description, category, tags, unit, retail_price, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, name, description, category, tags, unit, retail_price::float8, created_at, image_url
+	`, input.SupplierID, input.Name, input.Description, input.Category, tags, input.Unit, input.RetailPrice, nullableText(input.ImageURL)).Scan(
 		&product.ID,
 		&product.Name,
 		&product.Description,
@@ -220,6 +220,7 @@ func (s *Store) CreateProduct(ctx context.Context, input domain.NewProduct) (dom
 		&product.Unit,
 		&product.RetailPrice,
 		&product.CreatedAt,
+		&product.ImageURL,
 	)
 	if err != nil {
 		return domain.Product{}, fmt.Errorf("insert product: %w", err)
@@ -380,6 +381,7 @@ func scanProduct(row rowScanner) (domain.Product, error) {
 		&product.Unit,
 		&product.RetailPrice,
 		&product.CreatedAt,
+		&product.ImageURL,
 		&product.Supplier.ID,
 		&product.Supplier.Name,
 		&product.Supplier.Region,
@@ -392,4 +394,12 @@ func scanProduct(row rowScanner) (domain.Product, error) {
 		product.PriceTiers = []domain.PriceTier{}
 	}
 	return product, err
+}
+
+func nullableText(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return value
 }

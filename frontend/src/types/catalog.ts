@@ -20,6 +20,7 @@ export type ApiProduct = {
   tags: string[]
   unit: string
   retailPrice: number
+  imageUrl: string | null
   supplier: {
     id: string
     name: string

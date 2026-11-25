@@ -7,6 +7,7 @@ import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { isApiError, useAppState } from '../lib/app-state'
 import { formatMoney, formatQuantity } from '../lib/format'
+import { mediaUrl } from '../lib/media'
 import type { ApiProduct } from '../types/catalog'
 
 export function ProductPage() {
@@ -47,6 +48,11 @@ export function ProductPage() {
         {product && (
           <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <div>
+              {product.imageUrl ? (
+                <img src={mediaUrl(product.imageUrl)} alt="" className="mb-6 aspect-[4/3] w-full rounded-xl object-cover" />
+              ) : (
+                <div className="mb-6 flex aspect-[4/3] items-center justify-center rounded-xl bg-ink-100 text-sm font-semibold text-ink-600">{product.category}</div>
+              )}
               <Badge tone="accent">{product.category}</Badge>
               <h1 className="mt-3 font-serif text-4xl leading-tight text-ink-950">{product.name}</h1>
               <p className="mt-3 text-ink-700">{product.description}</p>

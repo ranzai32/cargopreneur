@@ -17,6 +17,8 @@ type Config struct {
 	CookieSecure  bool
 	AdminEmail    string
 	AdminPassword string
+	UploadDir     string
+	TwoGISKey     string
 }
 
 func Load() (Config, error) {
@@ -30,6 +32,8 @@ func Load() (Config, error) {
 		CookieSecure:  envBool("COOKIE_SECURE"),
 		AdminEmail:    strings.TrimSpace(os.Getenv("ADMIN_EMAIL")),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		UploadDir:     env("UPLOAD_DIR", "/var/lib/cargopreneur/uploads"),
+		TwoGISKey:     strings.TrimSpace(os.Getenv("TWO_GIS_KEY")),
 	}
 
 	if cfg.DatabaseURL == "" {

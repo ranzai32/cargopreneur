@@ -77,6 +77,7 @@ function product(
     tags,
     unit,
     retailPrice,
+    imageUrl: null,
     supplier,
     priceTiers: tiers.map(([minQty, unitPrice]) => ({ minQty, unitPrice })),
     createdAt,

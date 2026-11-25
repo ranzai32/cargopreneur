@@ -6,6 +6,7 @@ import (
 
 	"cargoprener/backend/internal/auth"
 	"cargoprener/backend/internal/domain"
+	"cargoprener/backend/internal/places"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -23,6 +24,8 @@ type RouterConfig struct {
 	Catalog      CatalogStore
 	Orders       OrderStore
 	Notifier     domain.Notifier
+	UploadDir    string
+	TwoGISKey    string
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -47,6 +50,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}))
 
 	router.Get("/health", healthHandler(cfg.Pinger))
+	router.Get("/uploads/{name}", func(w http.ResponseWriter, r *http.Request) {
+		serveUpload(cfg.UploadDir, w, r)
+	})
+	router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/addresses", addressHandler(places.TwoGIS{Key: cfg.TwoGISKey}))
 	router.Route("/auth", func(r chi.Router) {
 		r.With(rateLimit(cfg.Limiter)).Post("/register", authHandler.Register)
 		r.With(rateLimit(cfg.Limiter)).Post("/login", authHandler.Login)
@@ -85,6 +92,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				r.Post("/suppliers", admin.CreateSupplier)
 				r.Post("/suppliers/{id}/verify", admin.VerifySupplier)
 				r.Post("/products", admin.CreateProduct)
+				r.Post("/uploads", func(w http.ResponseWriter, r *http.Request) {
+					url, status, message := saveUpload(cfg.UploadDir, w, r)
+					if message != "" {
+						writeError(w, status, message, nil)
+						return
+					}
+					writeJSON(w, status, map[string]string{"url": url})
+				})
 			}
 			if cfg.Orders != nil {
 				r.Get("/orders", admin.ListOrders)

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
 )
+
+var uploadPath = regexp.MustCompile(`^/uploads/[0-9a-f]{32}\.(jpg|png|webp)$`)
 
 type CreateSupplierBody struct {
 	Name        string `json:"name"`
@@ -31,6 +34,7 @@ type CreateProductBody struct {
 	Unit        string          `json:"unit"`
 	RetailPrice json.RawMessage `json:"retailPrice"`
 	PriceTiers  json.RawMessage `json:"priceTiers"`
+	ImageURL    string          `json:"imageUrl"`
 }
 
 type NewProduct struct {
@@ -42,6 +46,7 @@ type NewProduct struct {
 	Unit        string
 	RetailPrice float64
 	PriceTiers  []PriceTier
+	ImageURL    string
 }
 
 func ParseCreateSupplier(body CreateSupplierBody) (NewSupplier, map[string]string) {
@@ -103,6 +108,12 @@ func ParseCreateProduct(body CreateProductBody) (NewProduct, map[string]string) 
 	tiers, tierErrs := parsePriceTiers(body.PriceTiers)
 	for key, message := range tierErrs {
 		errs[key] = message
+	}
+	image := strings.TrimSpace(body.ImageURL)
+	if image != "" && !uploadPath.MatchString(image) {
+		errs["imageUrl"] = "Upload a JPEG, PNG, or WebP photo"
+	} else {
+		input.ImageURL = image
 	}
 	if len(errs) > 0 {
 		return input, errs

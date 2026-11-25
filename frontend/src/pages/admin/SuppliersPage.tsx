@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { AddressField } from '../../components/AddressField'
 import { TextField } from '../../components/TextField'
 import { fieldErrorsOf, isApiError, useAppState } from '../../lib/app-state'
 import { formatNumber } from '../../lib/format'
@@ -132,7 +133,7 @@ function SupplierManager() {
           )}
           <TextField id="supplier-name" label="Name" value={form.name} error={fieldErrors.name} onChange={(event) => update('name', event.target.value)} />
           <TextField id="supplier-description" label="Description" value={form.description} error={fieldErrors.description} onChange={(event) => update('description', event.target.value)} />
-          <TextField id="supplier-region" label="Region" value={form.region} error={fieldErrors.region} onChange={(event) => update('region', event.target.value)} />
+          <AddressField id="supplier-region" label="Region" value={form.region} error={fieldErrors.region} onChange={(value) => update('region', value)} />
           <Button type="submit" disabled={pending}>{pending ? 'Adding…' : 'Add supplier'}</Button>
         </form>
       </Card>

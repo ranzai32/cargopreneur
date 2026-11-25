@@ -63,6 +63,8 @@ func main() {
 		Catalog:      db,
 		Orders:       db,
 		Notifier:     domain.NopNotifier{},
+		UploadDir:    cfg.UploadDir,
+		TwoGISKey:    cfg.TwoGISKey,
 	})
 
 	server := &http.Server{
