@@ -23,12 +23,13 @@ const (
 )
 
 var (
-	ErrProductUnavailable = errors.New("product unavailable")
-	ErrOrderClosed        = errors.New("order closed")
-	ErrAlreadyJoined      = errors.New("already joined")
-	ErrNotReadyForPayment = errors.New("order not ready for payment")
-	ErrNotParticipant     = errors.New("not a participant")
-	ErrAlreadyPaid        = errors.New("already paid")
+	ErrProductUnavailable  = errors.New("product unavailable")
+	ErrOrderClosed         = errors.New("order closed")
+	ErrAlreadyJoined       = errors.New("already joined")
+	ErrNotReadyForPayment  = errors.New("order not ready for payment")
+	ErrNotParticipant      = errors.New("not a participant")
+	ErrAlreadyPaid         = errors.New("already paid")
+	ErrOrderNotCancellable = errors.New("order not cancellable")
 )
 
 type Order struct {

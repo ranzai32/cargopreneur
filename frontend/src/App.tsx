@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppStateProvider } from './lib/app-state'
+import { AdminOrdersPage } from './pages/admin/OrdersPage'
+import { AdminProductsPage } from './pages/admin/ProductsPage'
+import { AdminSuppliersPage } from './pages/admin/SuppliersPage'
 import { CatalogPage } from './pages/CatalogPage'
 import { CreateOrderPage } from './pages/CreateOrderPage'
 import { LandingPage } from './pages/LandingPage'
@@ -40,6 +43,9 @@ export function App() {
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/new" element={<CreateOrderPage />} />
           <Route path="/orders/:orderId" element={<OrderPage />} />
+          <Route path="/admin/suppliers" element={<AdminSuppliersPage />} />
+          <Route path="/admin/products" element={<AdminProductsPage />} />
+          <Route path="/admin/orders" element={<AdminOrdersPage />} />
           <Route path="*" element={<StubPage title="Page not found" />} />
         </Routes>
       </AppStateProvider>

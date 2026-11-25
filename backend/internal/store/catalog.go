@@ -161,6 +161,112 @@ func (s *Store) FindSupplier(ctx context.Context, id uuid.UUID, includeUnverifie
 	return supplier, nil
 }
 
+func (s *Store) CreateSupplier(ctx context.Context, input domain.NewSupplier) (domain.Supplier, error) {
+	var supplier domain.Supplier
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO suppliers (name, description, region)
+		VALUES ($1, $2, $3)
+		RETURNING id, name, description, region, is_verified
+	`, input.Name, input.Description, input.Region).Scan(
+		&supplier.ID,
+		&supplier.Name,
+		&supplier.Description,
+		&supplier.Region,
+		&supplier.IsVerified,
+	)
+	if err != nil {
+		return domain.Supplier{}, fmt.Errorf("insert supplier: %w", err)
+	}
+	return supplier, nil
+}
+
+func (s *Store) VerifySupplier(ctx context.Context, id uuid.UUID) (domain.Supplier, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE suppliers SET is_verified = true WHERE id = $1`, id)
+	if err != nil {
+		return domain.Supplier{}, fmt.Errorf("verify supplier: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Supplier{}, domain.ErrNotFound
+	}
+	return s.FindSupplier(ctx, id, true)
+}
+
+func (s *Store) CreateProduct(ctx context.Context, input domain.NewProduct) (domain.Product, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Product{}, fmt.Errorf("begin product transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	supplier, err := lockSupplierBrief(ctx, tx, input.SupplierID)
+	if err != nil {
+		return domain.Product{}, err
+	}
+	tags := input.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	var product domain.Product
+	err = tx.QueryRow(ctx, `
+		INSERT INTO products (supplier_id, name, description, category, tags, unit, retail_price)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, name, description, category, tags, unit, retail_price::float8, created_at
+	`, input.SupplierID, input.Name, input.Description, input.Category, tags, input.Unit, input.RetailPrice).Scan(
+		&product.ID,
+		&product.Name,
+		&product.Description,
+		&product.Category,
+		&product.Tags,
+		&product.Unit,
+		&product.RetailPrice,
+		&product.CreatedAt,
+	)
+	if err != nil {
+		return domain.Product{}, fmt.Errorf("insert product: %w", err)
+	}
+	for _, tier := range input.PriceTiers {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO price_tiers (product_id, min_qty, unit_price)
+			VALUES ($1, $2, $3)
+		`, product.ID, tier.MinQty, tier.UnitPrice); err != nil {
+			return domain.Product{}, fmt.Errorf("insert price tier: %w", err)
+		}
+	}
+	grouped, err := loadPriceTiers(ctx, tx, []uuid.UUID{product.ID})
+	if err != nil {
+		return domain.Product{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Product{}, fmt.Errorf("commit product transaction: %w", err)
+	}
+	product.Supplier = supplier
+	product.PriceTiers = grouped[product.ID]
+	if product.Tags == nil {
+		product.Tags = []string{}
+	}
+	if product.PriceTiers == nil {
+		product.PriceTiers = []domain.PriceTier{}
+	}
+	return product, nil
+}
+
+func lockSupplierBrief(ctx context.Context, db orderDB, id uuid.UUID) (domain.SupplierBrief, error) {
+	var supplier domain.SupplierBrief
+	err := db.QueryRow(ctx, `
+		SELECT id, name, region, is_verified
+		FROM suppliers
+		WHERE id = $1
+		FOR UPDATE
+	`, id).Scan(&supplier.ID, &supplier.Name, &supplier.Region, &supplier.IsVerified)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.SupplierBrief{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.SupplierBrief{}, fmt.Errorf("lock supplier: %w", err)
+	}
+	return supplier, nil
+}
+
 func (s *Store) ListCategories(ctx context.Context, includeUnverified bool) ([]domain.Category, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.category, COUNT(*)

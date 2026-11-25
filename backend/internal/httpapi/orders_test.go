@@ -692,6 +692,26 @@ func (m *memOrders) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shi
 	return m.view(order, &userID)
 }
 
+func (m *memOrders) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order := m.find(id)
+	if order == nil {
+		return domain.Order{}, domain.ErrNotFound
+	}
+	m.settle(ctx, order, time.Now().UTC())
+	if order.status != domain.OrderOpen && order.status != domain.OrderConfirmed {
+		return domain.Order{}, domain.ErrOrderNotCancellable
+	}
+	order.status = domain.OrderCancelled
+	domain.AddNotice(ctx, domain.Notice{
+		Kind:    domain.NoticeOrderCancelled,
+		OrderID: order.id,
+		UserIDs: participantIDs(order),
+	})
+	return m.view(order, viewerID)
+}
+
 func (m *memOrders) settle(ctx context.Context, order *storedOrder, now time.Time) {
 	next, changed := domain.NextOrderStatus(order.status, order.deadline, collectedQuantity(order), order.moq, now)
 	if !changed {

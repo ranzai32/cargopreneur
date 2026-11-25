@@ -313,6 +313,74 @@ func (m *memCatalog) ListCategories(_ context.Context, includeUnverified bool) (
 	return categories, nil
 }
 
+func (m *memCatalog) CreateSupplier(_ context.Context, input domain.NewSupplier) (domain.Supplier, error) {
+	supplier := domain.Supplier{
+		ID:          uuid.New(),
+		Name:        input.Name,
+		Description: input.Description,
+		Region:      input.Region,
+		IsVerified:  false,
+	}
+	m.suppliers = append(m.suppliers, supplier)
+	return supplier, nil
+}
+
+func (m *memCatalog) VerifySupplier(_ context.Context, id uuid.UUID) (domain.Supplier, error) {
+	for i := range m.suppliers {
+		if m.suppliers[i].ID != id {
+			continue
+		}
+		m.suppliers[i].IsVerified = true
+		for j := range m.products {
+			if m.products[j].Supplier.ID == id {
+				m.products[j].Supplier.IsVerified = true
+			}
+		}
+		supplier := m.suppliers[i]
+		supplier.ProductCount = m.countProducts(id)
+		return supplier, nil
+	}
+	return domain.Supplier{}, domain.ErrNotFound
+}
+
+func (m *memCatalog) CreateProduct(_ context.Context, input domain.NewProduct) (domain.Product, error) {
+	var supplier domain.Supplier
+	found := false
+	for _, item := range m.suppliers {
+		if item.ID == input.SupplierID {
+			supplier = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		return domain.Product{}, domain.ErrNotFound
+	}
+	tags := append([]string(nil), input.Tags...)
+	if tags == nil {
+		tags = []string{}
+	}
+	product := domain.Product{
+		ID:          uuid.New(),
+		Name:        input.Name,
+		Description: input.Description,
+		Category:    input.Category,
+		Tags:        tags,
+		Unit:        input.Unit,
+		RetailPrice: input.RetailPrice,
+		Supplier: domain.SupplierBrief{
+			ID:         supplier.ID,
+			Name:       supplier.Name,
+			Region:     supplier.Region,
+			IsVerified: supplier.IsVerified,
+		},
+		PriceTiers: append([]domain.PriceTier(nil), input.PriceTiers...),
+		CreatedAt:  time.Now().UTC(),
+	}
+	m.products = append(m.products, product)
+	return product, nil
+}
+
 func (m *memCatalog) countProducts(supplierID uuid.UUID) int {
 	count := 0
 	for _, product := range m.products {

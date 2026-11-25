@@ -14,6 +14,7 @@ const links = [
 
 export function Navbar() {
   const { user, ready, logout } = useAppState()
+  const navLinks = user?.role === 'admin' ? [...links, { href: '/admin/suppliers', label: 'Admin' }] : links
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const menuId = useId()
@@ -97,7 +98,7 @@ export function Navbar() {
           <Logo />
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-6 lg:flex">
-          {links.map((link) => (
+          {navLinks.map((link) => (
             <Link
               key={link.href}
               to={link.href}
@@ -130,7 +131,7 @@ export function Navbar() {
       >
         <Container className="flex flex-col py-2">
           <nav aria-label="Mobile">
-            {links.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.href}
                 to={link.href}

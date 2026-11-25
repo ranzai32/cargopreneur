@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { exampleCategories, exampleProducts, initialExampleOrders } from '../data/exampleCatalog'
-import type { ApiOrder, ApiProduct, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import { exampleCategories, exampleProducts, exampleSuppliers, initialExampleOrders } from '../data/exampleCatalog'
+import type { ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 import { ApiError, api, exampleMode } from './api'
 import { filterProducts } from './catalog'
 
@@ -14,6 +14,23 @@ type RegisterInput = {
   email: string
   password: string
   region: string
+}
+
+type SupplierInput = {
+  name: string
+  description: string
+  region: string
+}
+
+type ProductInput = {
+  supplierId: string
+  name: string
+  description: string
+  category: string
+  tags: string[]
+  unit: string
+  retailPrice: number
+  priceTiers: Array<{ minQty: number; unitPrice: number }>
 }
 
 type AppState = {
@@ -31,6 +48,12 @@ type AppState = {
   createOrder: (input: { productId: string; moq: number; deadline: string; quantity: number }) => Promise<ApiOrder>
   joinOrder: (id: string, quantity: number) => Promise<ApiOrder>
   pay: (id: string, shippingAddress: string) => Promise<ApiOrder>
+  loadAdminSuppliers: () => Promise<ApiSupplier[]>
+  createSupplier: (input: SupplierInput) => Promise<ApiSupplier>
+  verifySupplier: (id: string) => Promise<ApiSupplier>
+  createProduct: (input: ProductInput) => Promise<ApiProduct>
+  loadAdminOrders: () => Promise<ApiOrder[]>
+  cancelOrder: (id: string) => Promise<ApiOrder>
 }
 
 const AppStateContext = createContext<AppState | null>(null)
@@ -42,6 +65,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!exampleMode) return initialExampleOrders()
     return readJson<ApiOrder[]>(orderKey) ?? initialExampleOrders()
   })
+  const [suppliers, setSuppliers] = useState<ApiSupplier[]>(() => [
+    ...exampleSuppliers,
+    {
+      id: '66666666-6666-4666-8666-666666666666',
+      name: 'QuickLot Imports',
+      description: 'Awaiting review.',
+      region: 'Newark, NJ',
+      isVerified: false,
+      productCount: 0,
+    },
+  ])
 
   useEffect(() => {
     if (exampleMode) {
@@ -185,7 +219,78 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
       return updated
     },
-  }), [orders, ready, user])
+    async loadAdminSuppliers() {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.adminSuppliers()
+      return [...suppliers].sort((a, b) => a.name.localeCompare(b.name))
+    },
+    async createSupplier(input) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.createSupplier(input)
+      const created: ApiSupplier = {
+        id: crypto.randomUUID(),
+        name: input.name.trim(),
+        description: input.description.trim(),
+        region: input.region.trim(),
+        isVerified: false,
+        productCount: 0,
+      }
+      setSuppliers((current) => [...current, created])
+      return created
+    },
+    async verifySupplier(id) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.verifySupplier(id)
+      const found = suppliers.find((item) => item.id === id)
+      if (!found) throw new ApiError(404, 'Supplier not found')
+      const updated = { ...found, isVerified: true }
+      setSuppliers((current) => current.map((item) => (item.id === id ? updated : item)))
+      return updated
+    },
+    async createProduct(input) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.createProduct(input)
+      const supplier = suppliers.find((item) => item.id === input.supplierId)
+      if (!supplier) throw new ApiError(422, 'Check the highlighted fields', { supplierId: 'Choose a supplier' })
+      setSuppliers((current) => current.map((item) => (
+        item.id === supplier.id ? { ...item, productCount: (item.productCount ?? 0) + 1 } : item
+      )))
+      return {
+        id: crypto.randomUUID(),
+        name: input.name.trim(),
+        description: input.description.trim(),
+        category: input.category.trim(),
+        tags: input.tags,
+        unit: input.unit.trim(),
+        retailPrice: input.retailPrice,
+        supplier: {
+          id: supplier.id,
+          name: supplier.name,
+          region: supplier.region,
+          isVerified: supplier.isVerified,
+        },
+        priceTiers: [...input.priceTiers].sort((left, right) => left.minQty - right.minQty),
+        createdAt: new Date().toISOString(),
+      }
+    },
+    async loadAdminOrders() {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.adminOrders()
+      return orders
+    },
+    async cancelOrder(id) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.cancelOrder(id)
+      const current = orders.find((item) => item.id === id)
+      if (!current) throw new ApiError(404, 'Order not found')
+      if (current.status !== 'open' && current.status !== 'confirmed') {
+        throw new ApiError(400, 'This order can no longer be cancelled')
+      }
+      const updated: ApiOrder = { ...current, status: 'cancelled' }
+      setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
+      return updated
+    },
+  }), [orders, ready, suppliers, user])
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
 }

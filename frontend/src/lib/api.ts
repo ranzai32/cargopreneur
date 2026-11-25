@@ -1,4 +1,4 @@
-import type { ApiOrder, ApiProduct, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 
 export const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
@@ -37,6 +37,22 @@ export const api = {
     request<ApiOrder>(`/orders/${id}/join`, { method: 'POST', body: { quantity } }),
   pay: (id: string, shippingAddress: string) =>
     request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body: { shippingAddress } }),
+  adminSuppliers: () => request<ApiSupplier[]>('/admin/suppliers'),
+  createSupplier: (body: { name: string; description: string; region: string }) =>
+    request<ApiSupplier>('/admin/suppliers', { method: 'POST', body }),
+  verifySupplier: (id: string) => request<ApiSupplier>(`/admin/suppliers/${id}/verify`, { method: 'POST' }),
+  createProduct: (body: {
+    supplierId: string
+    name: string
+    description: string
+    category: string
+    tags: string[]
+    unit: string
+    retailPrice: number
+    priceTiers: Array<{ minQty: number; unitPrice: number }>
+  }) => request<ApiProduct>('/admin/products', { method: 'POST', body }),
+  adminOrders: () => request<ApiOrder[]>('/admin/orders'),
+  cancelOrder: (id: string) => request<ApiOrder>(`/admin/orders/${id}/cancel`, { method: 'POST' }),
 }
 
 async function request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {

@@ -299,6 +299,53 @@ func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippin
 	return order, nil
 }
 
+func (s *Store) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	var order domain.Order
+	var blocked error
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		head, err := lockOrder(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		collected, userIDs, err := participationSummary(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		notices, err := settleHead(ctx, tx, &head, collected, userIDs, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		if head.Status != domain.OrderOpen && head.Status != domain.OrderConfirmed {
+			blocked = domain.ErrOrderNotCancellable
+			return notices, nil
+		}
+		if err := updateOrderStatus(ctx, tx, id, domain.OrderCancelled); err != nil {
+			return nil, err
+		}
+		notices = append(notices, domain.Notice{
+			Kind:    domain.NoticeOrderCancelled,
+			OrderID: id,
+			UserIDs: userIDs,
+		})
+		loaded, err := selectOrders(ctx, tx, "", viewerID, &id)
+		if err != nil {
+			return nil, err
+		}
+		if len(loaded) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		order = loaded[0]
+		return notices, nil
+	})
+	if err != nil {
+		return domain.Order{}, err
+	}
+	if blocked != nil {
+		return domain.Order{}, blocked
+	}
+	return order, nil
+}
+
 func (s *Store) withOrderTx(ctx context.Context, fn func(tx pgx.Tx) ([]domain.Notice, error)) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

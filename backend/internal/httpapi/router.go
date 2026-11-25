@@ -63,17 +63,34 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		router.Get("/categories", catalog.ListCategories)
 	}
 
+	notifier := cfg.Notifier
+	if notifier == nil {
+		notifier = domain.NopNotifier{}
+	}
 	if cfg.Orders != nil {
-		notifier := cfg.Notifier
-		if notifier == nil {
-			notifier = domain.NopNotifier{}
-		}
 		orders := OrderHandler{orders: cfg.Orders, users: cfg.Users, tokens: cfg.Tokens, notifier: notifier}
 		router.Get("/orders", orders.List)
 		router.Get("/orders/{id}", orders.Get)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders", orders.Create)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/join", orders.Join)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/pay", orders.Pay)
+	}
+	if cfg.Catalog != nil || cfg.Orders != nil {
+		admin := AdminHandler{catalog: cfg.Catalog, orders: cfg.Orders, notifier: notifier}
+		router.Route("/admin", func(r chi.Router) {
+			r.Use(requireAuth(cfg.Users, cfg.Tokens))
+			r.Use(RequireRole(domain.RoleAdmin))
+			if cfg.Catalog != nil {
+				r.Get("/suppliers", admin.ListSuppliers)
+				r.Post("/suppliers", admin.CreateSupplier)
+				r.Post("/suppliers/{id}/verify", admin.VerifySupplier)
+				r.Post("/products", admin.CreateProduct)
+			}
+			if cfg.Orders != nil {
+				r.Get("/orders", admin.ListOrders)
+				r.Post("/orders/{id}/cancel", admin.CancelOrder)
+			}
+		})
 	}
 
 	return router
