@@ -190,11 +190,15 @@ func (s *Store) ListCategories(ctx context.Context, includeUnverified bool) ([]d
 }
 
 func (s *Store) tiersByProduct(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]domain.PriceTier, error) {
+	return loadPriceTiers(ctx, s.pool, ids)
+}
+
+func loadPriceTiers(ctx context.Context, q rowQueryer, ids []uuid.UUID) (map[uuid.UUID][]domain.PriceTier, error) {
 	grouped := map[uuid.UUID][]domain.PriceTier{}
 	if len(ids) == 0 {
 		return grouped, nil
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT product_id, min_qty, unit_price::float8
 		FROM price_tiers
 		WHERE product_id = ANY($1)

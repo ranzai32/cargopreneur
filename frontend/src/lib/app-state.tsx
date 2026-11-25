@@ -109,10 +109,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       return source.filter((item) => item.status === status)
     },
     async loadOrder(id) {
-      const source = exampleMode ? orders : await api.orders()
-      const found = source.find((item) => item.id === id)
-      if (!found) throw new ApiError(404, 'Order not found')
-      return found
+      if (exampleMode) {
+        const found = orders.find((item) => item.id === id)
+        if (!found) throw new ApiError(404, 'Order not found')
+        return found
+      }
+      return api.order(id)
     },
     async createOrder(input) {
       if (!user) throw new ApiError(401, 'Authentication required')

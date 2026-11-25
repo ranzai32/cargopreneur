@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"cargoprener/backend/internal/auth"
+	"cargoprener/backend/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -20,6 +21,8 @@ type RouterConfig struct {
 	CORSOrigin   string
 	Limiter      *RateLimiter
 	Catalog      CatalogStore
+	Orders       OrderStore
+	Notifier     domain.Notifier
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -58,6 +61,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		router.Get("/suppliers", catalog.ListSuppliers)
 		router.Get("/suppliers/{id}", catalog.GetSupplier)
 		router.Get("/categories", catalog.ListCategories)
+	}
+
+	if cfg.Orders != nil {
+		notifier := cfg.Notifier
+		if notifier == nil {
+			notifier = domain.NopNotifier{}
+		}
+		orders := OrderHandler{orders: cfg.Orders, users: cfg.Users, tokens: cfg.Tokens, notifier: notifier}
+		router.Get("/orders", orders.List)
+		router.Get("/orders/{id}", orders.Get)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders", orders.Create)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/join", orders.Join)
 	}
 
 	return router

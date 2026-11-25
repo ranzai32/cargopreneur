@@ -12,6 +12,7 @@ import (
 
 	"cargoprener/backend/internal/auth"
 	"cargoprener/backend/internal/config"
+	"cargoprener/backend/internal/domain"
 	"cargoprener/backend/internal/httpapi"
 	"cargoprener/backend/internal/store"
 )
@@ -60,6 +61,8 @@ func main() {
 		CORSOrigin:   cfg.CORSOrigin,
 		Limiter:      httpapi.NewRateLimiter(10, time.Minute),
 		Catalog:      db,
+		Orders:       db,
+		Notifier:     domain.NopNotifier{},
 	})
 
 	server := &http.Server{
