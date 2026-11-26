@@ -24,6 +24,9 @@ const (
 	DeliveryPending   = "pending"
 	DeliveryShipped   = "shipped"
 	DeliveryDelivered = "delivered"
+
+	ReceiptPending  = "pending"
+	ReceiptReceived = "received"
 )
 
 var (
@@ -37,6 +40,7 @@ var (
 	ErrAddressLimit         = errors.New("address limit reached")
 	ErrOrderNotCancellable  = errors.New("order not cancellable")
 	ErrShipmentNotUpdatable = errors.New("shipment cannot be updated")
+	ErrReceiptNotAllowed    = errors.New("receipt cannot be confirmed")
 	ErrDisputeNotAllowed    = errors.New("dispute not allowed")
 	ErrDisputeOpen          = errors.New("dispute already open")
 	ErrDisputeClosed        = errors.New("dispute already resolved")
@@ -57,6 +61,7 @@ type Order struct {
 	YourDeliveryStatus *string
 	YourDeliveryMethod *string
 	YourShippingFee    *float64
+	YourReceiptStatus  *string
 	AllPaid            bool
 	Participants       []Participation
 	Disputes           []Dispute
@@ -71,6 +76,7 @@ type Participation struct {
 	ShippingFee     float64
 	PaymentStatus   string
 	DeliveryStatus  string
+	ReceiptStatus   string
 }
 
 type ParticipationJSON struct {
@@ -81,6 +87,7 @@ type ParticipationJSON struct {
 	ShippingFee     float64   `json:"shippingFee"`
 	PaymentStatus   string    `json:"paymentStatus"`
 	DeliveryStatus  string    `json:"deliveryStatus"`
+	ReceiptStatus   string    `json:"receiptStatus"`
 }
 
 type OrderJSON struct {
@@ -96,6 +103,7 @@ type OrderJSON struct {
 	YourDeliveryStatus *string             `json:"yourDeliveryStatus"`
 	YourDeliveryMethod *string             `json:"yourDeliveryMethod"`
 	YourShippingFee    *float64            `json:"yourShippingFee"`
+	YourReceiptStatus  *string             `json:"yourReceiptStatus"`
 	AllPaid            bool                `json:"allPaid"`
 	Participants       []ParticipationJSON `json:"participants"`
 	Disputes           []DisputeJSON       `json:"disputes"`
@@ -149,6 +157,7 @@ func (o Order) JSON() OrderJSON {
 		YourDeliveryStatus: o.YourDeliveryStatus,
 		YourDeliveryMethod: o.YourDeliveryMethod,
 		YourShippingFee:    o.YourShippingFee,
+		YourReceiptStatus:  o.YourReceiptStatus,
 		AllPaid:            o.AllPaid,
 		Participants:       participants,
 		Disputes:           disputes,
@@ -165,7 +174,15 @@ func (p Participation) JSON() ParticipationJSON {
 		ShippingFee:     p.ShippingFee,
 		PaymentStatus:   p.PaymentStatus,
 		DeliveryStatus:  p.DeliveryStatus,
+		ReceiptStatus:   p.ReceiptStatus,
 	}
+}
+
+func ReceiptAllowed(orderStatus, paymentStatus, deliveryStatus, receiptStatus string) bool {
+	if paymentStatus != PaymentPaid || deliveryStatus != DeliveryDelivered || receiptStatus == ReceiptReceived {
+		return false
+	}
+	return orderStatus == OrderPaid || orderStatus == OrderCompleted
 }
 
 func ShipmentUpdateAllowed(orderStatus, paymentStatus, currentDelivery, next string) bool {

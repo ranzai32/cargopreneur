@@ -457,7 +457,7 @@ func signedIn(t *testing.T, users *fakeUsers, tokens *auth.Tokens, role, email s
 
 func assertOrderShape(t *testing.T, order map[string]any) {
 	t.Helper()
-	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "disputes", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryMethod", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity", "yourShippingFee"}
+	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "disputes", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryMethod", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity", "yourReceiptStatus", "yourShippingFee"}
 	if !sameStrings(mapKeys(order), want) {
 		t.Fatalf("order keys = %#v", mapKeys(order))
 	}
@@ -488,7 +488,7 @@ func assertOrderShape(t *testing.T, order map[string]any) {
 		t.Fatalf("participants = %#v", order["participants"])
 	}
 	part, ok := parts[0].(map[string]any)
-	if !ok || !sameStrings(mapKeys(part), []string{"deliveryMethod", "deliveryStatus", "id", "paymentStatus", "quantity", "shippingAddress", "shippingFee"}) {
+	if !ok || !sameStrings(mapKeys(part), []string{"deliveryMethod", "deliveryStatus", "id", "paymentStatus", "quantity", "receiptStatus", "shippingAddress", "shippingFee"}) {
 		t.Fatalf("participation = %#v", parts[0])
 	}
 }
@@ -557,8 +557,10 @@ type participation struct {
 	deliveryMethod  string
 	shippingFee     float64
 	deliveryStatus  string
+	receiptStatus   string
 	shippedAt       *time.Time
 	deliveredAt     *time.Time
+	receivedAt      *time.Time
 }
 
 type storedOrder struct {
@@ -609,6 +611,9 @@ func (m *memOrders) seed(order storedOrder) {
 		}
 		if copied.parts[i].deliveryStatus == "" {
 			copied.parts[i].deliveryStatus = domain.DeliveryPending
+		}
+		if copied.parts[i].receiptStatus == "" {
+			copied.parts[i].receiptStatus = domain.ReceiptPending
 		}
 	}
 	m.orders = append(m.orders, &copied)
@@ -789,6 +794,37 @@ func (m *memOrders) DeliverParticipation(ctx context.Context, id uuid.UUID, view
 	return m.advanceDelivery(ctx, id, viewerID, domain.DeliveryDelivered)
 }
 
+func (m *memOrders) ReceiveOrder(ctx context.Context, orderID, userID uuid.UUID) (domain.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order := m.find(orderID)
+	if order == nil {
+		return domain.Order{}, domain.ErrNotFound
+	}
+	m.settle(ctx, order, time.Now().UTC())
+	index := -1
+	for i, part := range order.parts {
+		if part.userID == userID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return domain.Order{}, domain.ErrNotParticipant
+	}
+	part := &order.parts[index]
+	if !domain.ReceiptAllowed(order.status, participationStatus(*part), deliveryStatusOf(*part), receiptStatusOf(*part)) {
+		return domain.Order{}, domain.ErrReceiptNotAllowed
+	}
+	now := time.Now().UTC()
+	part.receiptStatus = domain.ReceiptReceived
+	part.receivedAt = &now
+	if allParticipationsConfirmed(order) {
+		order.status = domain.OrderCompleted
+	}
+	return m.view(order, &userID)
+}
+
 func (m *memOrders) advanceDelivery(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID, next string) (domain.Order, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -812,7 +848,7 @@ func (m *memOrders) advanceDelivery(ctx context.Context, id uuid.UUID, viewerID 
 			part.shippedAt = &now
 		}
 		part.deliveredAt = &now
-		if allParticipationsDelivered(order) {
+		if allParticipationsConfirmed(order) {
 			order.status = domain.OrderCompleted
 		}
 		kind = domain.NoticeShipmentDelivered
@@ -894,6 +930,7 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 	var delivery *string
 	var method *string
 	var fee *float64
+	var receipt *string
 	allPaid := len(order.parts) > 0
 	for _, part := range order.parts {
 		status := participationStatus(part)
@@ -906,6 +943,7 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 			ShippingFee:     part.shippingFee,
 			PaymentStatus:   status,
 			DeliveryStatus:  shipped,
+			ReceiptStatus:   receiptStatusOf(part),
 		})
 		if status != domain.PaymentPaid {
 			allPaid = false
@@ -923,6 +961,8 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 				method = &methodCopy
 				fee = &feeCopy
 			}
+			receiptCopy := receiptStatusOf(part)
+			receipt = &receiptCopy
 		}
 	}
 	return domain.Order{
@@ -939,6 +979,7 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 		YourDeliveryStatus: delivery,
 		YourDeliveryMethod: method,
 		YourShippingFee:    fee,
+		YourReceiptStatus:  receipt,
 		AllPaid:            allPaid,
 		Participants:       participants,
 		Disputes:           disputes,
@@ -1100,16 +1141,23 @@ func deliveryStatusOf(part participation) string {
 	return part.deliveryStatus
 }
 
-func allParticipationsDelivered(order *storedOrder) bool {
+func allParticipationsConfirmed(order *storedOrder) bool {
 	if len(order.parts) == 0 {
 		return false
 	}
 	for _, part := range order.parts {
-		if deliveryStatusOf(part) != domain.DeliveryDelivered {
+		if deliveryStatusOf(part) != domain.DeliveryDelivered || receiptStatusOf(part) != domain.ReceiptReceived {
 			return false
 		}
 	}
 	return true
+}
+
+func receiptStatusOf(part participation) string {
+	if part.receiptStatus == "" {
+		return domain.ReceiptPending
+	}
+	return part.receiptStatus
 }
 
 func allParticipationsPaid(order *storedOrder) bool {

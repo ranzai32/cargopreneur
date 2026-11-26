@@ -22,6 +22,7 @@ type OrderStore interface {
 	CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
+	ReceiveOrder(ctx context.Context, orderID, userID uuid.UUID) (domain.Order, error)
 	OpenDispute(ctx context.Context, orderID, userID uuid.UUID, reason string) (domain.Order, error)
 	ResolveDispute(ctx context.Context, disputeID uuid.UUID, outcome string) (domain.AdminDispute, error)
 	ListDisputes(ctx context.Context) ([]domain.AdminDispute, error)
@@ -197,6 +198,39 @@ func (h OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("pay order", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, order.JSON())
+}
+
+func (h OrderHandler) Receive(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	ctx := domain.WithNoticeLog(r.Context())
+	order, err := h.orders.ReceiveOrder(ctx, id, user.ID)
+	h.dispatchNotices(ctx)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Order not found", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrNotParticipant) {
+		writeError(w, http.StatusForbidden, "You are not part of this order", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrReceiptNotAllowed) {
+		writeError(w, http.StatusBadRequest, "Confirm receipt after the supplier marks the order delivered", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("receive order", "error", err)
 		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
 		return
 	}

@@ -9,7 +9,7 @@ import { PageLayout } from '../components/PageLayout'
 import { TextField } from '../components/TextField'
 import type { ProfileInput } from '../lib/api'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
-import { formatDeliveryStatus, formatNumber, formatQuantity } from '../lib/format'
+import { formatDeliveryStatus, formatNumber, formatQuantity, formatReceiptStatus } from '../lib/format'
 import type { ApiOrder, ApiUser } from '../types/catalog'
 import { StatusBadge } from './OrdersPage'
 
@@ -101,7 +101,7 @@ export function AccountPage() {
                           <span className="text-sm text-ink-700">
                             {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}
                             {' · '}
-                            {order.yourPaymentStatus === 'paid' ? `Paid · ${formatDeliveryStatus(order.yourDeliveryStatus)}` : 'Unpaid'}
+                            {order.yourPaymentStatus === 'paid' ? `Paid · ${formatDeliveryStatus(order.yourDeliveryStatus)} · ${formatReceiptStatus(order.yourReceiptStatus)}` : 'Unpaid'}
                           </span>
                         </span>
                         <StatusBadge status={order.status} />

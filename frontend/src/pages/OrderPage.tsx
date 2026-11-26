@@ -8,14 +8,14 @@ import { ProgressBar } from '../components/ProgressBar'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
-import { daysUntil, formatDaysLeft, formatDeliveryStatus, formatMoney, formatNumber, formatQuantity } from '../lib/format'
+import { daysUntil, formatDaysLeft, formatDeliveryStatus, formatMoney, formatNumber, formatQuantity, formatReceiptStatus } from '../lib/format'
 import { mediaUrl } from '../lib/media'
 import type { ApiOrder } from '../types/catalog'
 
 export function OrderPage() {
   const { orderId = '' } = useParams()
   const navigate = useNavigate()
-  const { user, loadOrder, joinOrder, openDispute } = useAppState()
+  const { user, loadOrder, joinOrder, openDispute, receiveOrder } = useAppState()
   const [order, setOrder] = useState<ApiOrder | null>(null)
   const [quantity, setQuantity] = useState(1)
   const [error, setError] = useState('')
@@ -81,6 +81,20 @@ export function OrderPage() {
     }
   }
 
+  async function handleReceive() {
+    setPending(true)
+    setMessage('')
+    try {
+      const updated = await receiveOrder(orderId)
+      setOrder(updated)
+      setMessage(updated.status === 'completed' ? 'Both sides confirmed. This order is complete.' : 'You confirmed that the order was received.')
+    } catch (reason) {
+      setMessage(isApiError(reason) ? reason.message : 'Could not confirm receipt')
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function handleJoin() {
     setPending(true)
     setMessage('')
@@ -99,8 +113,9 @@ export function OrderPage() {
   const joined = Boolean(order.yourQuantity)
   const paid = order.yourPaymentStatus === 'paid'
   const canPay = joined && order.status === 'confirmed' && !paid
-  const delivered = order.yourDeliveryStatus === 'delivered' || order.status === 'completed'
-  const steps = orderSteps({ joined, open, canPay, paid, delivered, closed: !open && !joined })
+  const delivered = order.yourDeliveryStatus === 'delivered'
+  const received = order.yourReceiptStatus === 'received'
+  const steps = orderSteps({ joined, open, canPay, paid, delivered, received, closed: !open && !joined })
 
   return (
     <PageLayout>
@@ -147,7 +162,21 @@ export function OrderPage() {
               <>
                 <h2 className="font-serif text-2xl text-ink-950">Delivery</h2>
                 <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}. Payment is recorded.</p>
-                <p className="mt-3 text-ink-800">The supplier ships to the address you entered. Status: {formatDeliveryStatus(order.yourDeliveryStatus)}.</p>
+                <p className="mt-3 text-ink-800">Supplier: {formatDeliveryStatus(order.yourDeliveryStatus)}. You: {formatReceiptStatus(order.yourReceiptStatus)}.</p>
+                {delivered && !received && (
+                  <>
+                    <p className="mt-3 text-sm text-ink-700">The supplier marked this order delivered. Confirm receipt when the goods are with you. The order stays open until both sides have confirmed.</p>
+                    <Button className="mt-4 w-full" disabled={pending} onClick={() => void handleReceive()}>
+                      {pending ? 'Confirming…' : 'Order received'}
+                    </Button>
+                  </>
+                )}
+                {!delivered && (
+                  <p className="mt-3 text-sm text-ink-700">Order received opens after the supplier marks the order delivered.</p>
+                )}
+                {received && (
+                  <p className="mt-3 text-sm text-ink-800">You confirmed receipt. The order is complete when every participant has done the same.</p>
+                )}
               </>
             ) : joined && open ? (
               <>
@@ -228,17 +257,25 @@ function orderSteps(input: {
   canPay: boolean
   paid: boolean
   delivered: boolean
+  received: boolean
   closed: boolean
 }) {
   const quantity = input.joined ? 'done' : input.open ? 'current' : 'muted'
   const address = input.paid || input.canPay ? (input.paid ? 'done' : 'current') : 'muted'
   const payment = input.paid ? 'done' : input.canPay ? 'current' : 'muted'
-  const delivery = input.delivered ? 'done' : input.paid ? 'current' : 'muted'
+  const delivery = input.received ? 'done' : input.paid ? 'current' : 'muted'
+  const deliveryDetail = input.received
+    ? 'Both sides confirmed.'
+    : input.delivered
+      ? 'Confirm that you received it.'
+      : input.paid
+        ? 'Waiting for the supplier to mark it delivered.'
+        : 'Both sides confirm this at the end.'
   return [
     { title: 'Quantity', detail: input.joined ? 'Your quantity is in the pool.' : input.closed ? 'Joining is closed.' : 'Add only what you need.', tone: stepTone(quantity) },
     { title: 'Checkout', detail: input.canPay ? 'Address and delivery are on the checkout screen.' : input.paid ? 'Payment recorded.' : 'Opens after the minimum is reached.', tone: stepTone(address) },
     { title: 'Payment', detail: input.paid ? 'Simulated payment recorded.' : 'No card is charged.', tone: stepTone(payment) },
-    { title: 'Delivery', detail: input.delivered ? 'Delivered.' : input.paid ? 'Waiting on the supplier.' : 'The supplier updates this.', tone: stepTone(delivery) },
+    { title: 'Delivery', detail: deliveryDetail, tone: stepTone(delivery) },
   ]
 }
 

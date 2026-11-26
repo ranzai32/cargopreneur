@@ -48,6 +48,7 @@ export const api = {
     request<ApiOrder>(`/orders/${id}/join`, { method: 'POST', body: { quantity } }),
   pay: (id: string, body: { shippingAddress: string; deliveryMethod: string }) =>
     request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body }),
+  receiveOrder: (id: string) => request<ApiOrder>(`/orders/${id}/receive`, { method: 'POST' }),
   addresses: (q: string) => request<{ items: string[] }>(`/addresses?q=${encodeURIComponent(q)}`),
   savedAddresses: () => request<SavedAddress[]>('/me/addresses'),
   createAddress: (body: { label: string; line: string }) =>
