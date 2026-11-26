@@ -153,6 +153,53 @@ func (h AdminHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, order.JSON())
 }
 
+func (h AdminHandler) ListDisputes(w http.ResponseWriter, r *http.Request) {
+	items, err := h.orders.ListDisputes(r.Context())
+	if err != nil {
+		slog.Error("list disputes", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	encoded := make([]domain.AdminDisputeJSON, 0, len(items))
+	for _, item := range items {
+		encoded = append(encoded, item.JSON())
+	}
+	writeJSON(w, http.StatusOK, encoded)
+}
+
+func (h AdminHandler) ResolveDispute(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body domain.ResolveDisputeBody
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	outcome, fieldErrors := domain.ParseDisputeOutcome(body.Outcome)
+	if len(fieldErrors) > 0 {
+		writeValidation(w, fieldErrors)
+		return
+	}
+	ctx := domain.WithNoticeLog(r.Context())
+	dispute, err := h.orders.ResolveDispute(ctx, id, outcome)
+	dispatchNotices(ctx, h.notifier)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Dispute not found", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrDisputeClosed) {
+		writeError(w, http.StatusBadRequest, "This dispute is already resolved", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("resolve dispute", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, dispute.JSON())
+}
+
 func (h AdminHandler) ShipParticipation(w http.ResponseWriter, r *http.Request) {
 	h.updateShipment(w, r, true)
 }

@@ -1,6 +1,6 @@
 # CargoPrener API
 
-Go REST API for CargoPrener. Auth and the public catalog are implemented. Orders and disputes are in the schema for later endpoints.
+Go REST API for CargoPrener. Auth, the catalog, orders, delivery, and disputes are implemented. Payment is simulated.
 
 The frontend does not have an API client yet. There is no `src/api` folder and no `VITE_USE_MOCKS` flag. Landing types also differ from these tables: the UI puts `moq` on the product and uses `location` / `moderated` / `price`, while the database stores `orders.moq`, `suppliers.region`, `suppliers.is_verified`, and `price_tiers.unit_price`. Collected quantity and participant count are not columns; they come from `order_participations`.
 

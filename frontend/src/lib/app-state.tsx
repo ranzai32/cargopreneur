@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { exampleCategories, exampleProducts, exampleSuppliers, initialExampleOrders } from '../data/exampleCatalog'
-import type { ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 import { ApiError, api, exampleMode } from './api'
 import { filterProducts } from './catalog'
 
@@ -55,6 +55,9 @@ type AppState = {
   createProduct: (input: ProductInput) => Promise<ApiProduct>
   loadAdminOrders: () => Promise<ApiOrder[]>
   cancelOrder: (id: string) => Promise<ApiOrder>
+  openDispute: (orderId: string, reason: string) => Promise<ApiOrder>
+  loadAdminDisputes: () => Promise<AdminDispute[]>
+  resolveDispute: (id: string, outcome: string) => Promise<AdminDispute>
   shipParticipation: (id: string) => Promise<ApiOrder>
   deliverParticipation: (id: string) => Promise<ApiOrder>
 }
@@ -174,6 +177,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         yourPaymentStatus: 'unpaid',
         yourDeliveryStatus: 'pending',
         allPaid: false,
+        disputes: [],
         participants: [
           {
             id: crypto.randomUUID(),
@@ -322,6 +326,78 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const updated: ApiOrder = { ...current, status: 'cancelled' }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
       return updated
+    },
+    async openDispute(orderId, reason) {
+      if (!user) throw new ApiError(401, 'Authentication required')
+      const trimmed = reason.trim()
+      if (trimmed.length < 8) {
+        throw new ApiError(422, 'Check the highlighted fields', { reason: 'Use at least 8 characters' })
+      }
+      if (trimmed.length > 500) {
+        throw new ApiError(422, 'Check the highlighted fields', { reason: 'Use at most 500 characters' })
+      }
+      if (!exampleMode) return api.openDispute(orderId, trimmed)
+      const current = orders.find((item) => item.id === orderId)
+      if (!current) throw new ApiError(404, 'Order not found')
+      if (current.status !== 'confirmed' && current.status !== 'paid' && current.status !== 'completed') {
+        throw new ApiError(400, 'This order cannot be disputed')
+      }
+      if (!current.yourQuantity) throw new ApiError(403, 'You are not part of this order')
+      if ((current.disputes ?? []).some((item) => item.status === 'open' && item.openedBy === user.id)) {
+        throw new ApiError(409, 'You already have an open dispute on this order')
+      }
+      const updated: ApiOrder = {
+        ...current,
+        disputes: [
+          ...(current.disputes ?? []),
+          {
+            id: crypto.randomUUID(),
+            orderId,
+            openedBy: user.id,
+            businessName: user.businessName,
+            reason: trimmed,
+            status: 'open',
+            outcome: '',
+            createdAt: new Date().toISOString(),
+            resolvedAt: null,
+          },
+        ],
+      }
+      setOrders((items) => items.map((item) => (item.id === orderId ? updated : item)))
+      return updated
+    },
+    async loadAdminDisputes() {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.adminDisputes()
+      return orders.flatMap((order) => (order.disputes ?? []).map((dispute) => ({
+        ...dispute,
+        productName: order.product.name,
+        orderStatus: order.status,
+      })))
+    },
+    async resolveDispute(id, outcome) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      const trimmed = outcome.trim()
+      if (!trimmed) throw new ApiError(422, 'Check the highlighted fields', { outcome: 'Record the outcome' })
+      if (!exampleMode) return api.resolveDispute(id, trimmed)
+      const current = orders.find((item) => (item.disputes ?? []).some((dispute) => dispute.id === id))
+      if (!current) throw new ApiError(404, 'Dispute not found')
+      const existing = (current.disputes ?? []).find((dispute) => dispute.id === id)
+      if (!existing || existing.status !== 'open') throw new ApiError(400, 'This dispute is already resolved')
+      const resolved: AdminDispute = {
+        ...existing,
+        status: 'resolved',
+        outcome: trimmed,
+        resolvedAt: new Date().toISOString(),
+        productName: current.product.name,
+        orderStatus: current.status,
+      }
+      const updated: ApiOrder = {
+        ...current,
+        disputes: (current.disputes ?? []).map((dispute) => (dispute.id === id ? resolved : dispute)),
+      }
+      setOrders((items) => items.map((item) => (item.id === current.id ? updated : item)))
+      return resolved
     },
     async shipParticipation(id) {
       if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')

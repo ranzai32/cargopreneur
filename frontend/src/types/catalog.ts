@@ -51,6 +51,23 @@ export type ApiParticipation = {
   deliveryStatus: DeliveryStatus
 }
 
+export type ApiDispute = {
+  id: string
+  orderId: string
+  openedBy: string
+  businessName: string
+  reason: string
+  status: 'open' | 'resolved'
+  outcome: string
+  createdAt: string
+  resolvedAt: string | null
+}
+
+export type AdminDispute = ApiDispute & {
+  productName: string
+  orderStatus: ApiOrder['status']
+}
+
 export type ApiOrder = {
   id: string
   status: 'open' | 'confirmed' | 'paid' | 'completed' | 'cancelled'
@@ -64,6 +81,7 @@ export type ApiOrder = {
   yourDeliveryStatus: DeliveryStatus | null
   allPaid: boolean
   participants: ApiParticipation[]
+  disputes: ApiDispute[]
   product: ApiProduct
 }
 

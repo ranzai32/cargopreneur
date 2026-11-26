@@ -25,7 +25,6 @@ type RouterConfig struct {
 	Orders       OrderStore
 	Notifier     domain.Notifier
 	UploadDir    string
-	TwoGISKey    string
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -53,7 +52,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	router.Get("/uploads/{name}", func(w http.ResponseWriter, r *http.Request) {
 		serveUpload(cfg.UploadDir, w, r)
 	})
-	router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/addresses", addressHandler(places.TwoGIS{Key: cfg.TwoGISKey}))
+	router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/addresses", addressHandler(places.OSM{}))
 	router.Route("/auth", func(r chi.Router) {
 		r.With(rateLimit(cfg.Limiter)).Post("/register", authHandler.Register)
 		r.With(rateLimit(cfg.Limiter)).Post("/login", authHandler.Login)
@@ -81,6 +80,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders", orders.Create)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/join", orders.Join)
 		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/pay", orders.Pay)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/orders/{id}/disputes", orders.OpenDispute)
 	}
 	if cfg.Catalog != nil || cfg.Orders != nil {
 		admin := AdminHandler{catalog: cfg.Catalog, orders: cfg.Orders, notifier: notifier}
@@ -106,6 +106,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				r.Post("/orders/{id}/cancel", admin.CancelOrder)
 				r.Post("/participations/{id}/ship", admin.ShipParticipation)
 				r.Post("/participations/{id}/deliver", admin.DeliverParticipation)
+				r.Get("/disputes", admin.ListDisputes)
+				r.Post("/disputes/{id}/resolve", admin.ResolveDispute)
 			}
 		})
 	}

@@ -109,6 +109,7 @@ function order(
     yourPaymentStatus: null,
     yourDeliveryStatus: null,
     allPaid: false,
+    disputes: [],
     participants: [
       {
         id: `${id.slice(0, -2)}b1`,

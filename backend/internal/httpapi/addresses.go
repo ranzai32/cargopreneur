@@ -7,7 +7,7 @@ import (
 	"cargoprener/backend/internal/places"
 )
 
-func addressHandler(source places.TwoGIS) http.HandlerFunc {
+func addressHandler(source places.Suggester) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		items, err := source.Suggest(r.Context(), r.URL.Query().Get("q"))
 		if err != nil {

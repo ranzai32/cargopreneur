@@ -35,6 +35,9 @@ var (
 	ErrAlreadyPaid          = errors.New("already paid")
 	ErrOrderNotCancellable  = errors.New("order not cancellable")
 	ErrShipmentNotUpdatable = errors.New("shipment cannot be updated")
+	ErrDisputeNotAllowed    = errors.New("dispute not allowed")
+	ErrDisputeOpen          = errors.New("dispute already open")
+	ErrDisputeClosed        = errors.New("dispute already resolved")
 )
 
 type Order struct {
@@ -51,6 +54,7 @@ type Order struct {
 	YourDeliveryStatus *string
 	AllPaid            bool
 	Participants       []Participation
+	Disputes           []Dispute
 	Product            Product
 }
 
@@ -83,6 +87,7 @@ type OrderJSON struct {
 	YourDeliveryStatus *string             `json:"yourDeliveryStatus"`
 	AllPaid            bool                `json:"allPaid"`
 	Participants       []ParticipationJSON `json:"participants"`
+	Disputes           []DisputeJSON       `json:"disputes"`
 	Product            ProductJSON         `json:"product"`
 }
 
@@ -115,6 +120,10 @@ func (o Order) JSON() OrderJSON {
 	for _, part := range o.Participants {
 		participants = append(participants, part.JSON())
 	}
+	disputes := make([]DisputeJSON, 0, len(o.Disputes))
+	for _, dispute := range o.Disputes {
+		disputes = append(disputes, dispute.JSON())
+	}
 	return OrderJSON{
 		ID:                 o.ID,
 		Status:             o.Status,
@@ -128,6 +137,7 @@ func (o Order) JSON() OrderJSON {
 		YourDeliveryStatus: o.YourDeliveryStatus,
 		AllPaid:            o.AllPaid,
 		Participants:       participants,
+		Disputes:           disputes,
 		Product:            o.Product.JSON(),
 	}
 }

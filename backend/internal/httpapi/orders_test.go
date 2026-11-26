@@ -454,7 +454,7 @@ func signedIn(t *testing.T, users *fakeUsers, tokens *auth.Tokens, role, email s
 
 func assertOrderShape(t *testing.T, order map[string]any) {
 	t.Helper()
-	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity"}
+	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "disputes", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity"}
 	if !sameStrings(mapKeys(order), want) {
 		t.Fatalf("order keys = %#v", mapKeys(order))
 	}
@@ -566,10 +566,23 @@ type storedOrder struct {
 	parts     []participation
 }
 
+type storedDispute struct {
+	id           uuid.UUID
+	orderID      uuid.UUID
+	openedBy     uuid.UUID
+	businessName string
+	reason       string
+	status       string
+	outcome      string
+	createdAt    time.Time
+	resolvedAt   *time.Time
+}
+
 type memOrders struct {
 	mu       sync.Mutex
 	products []domain.Product
 	orders   []*storedOrder
+	disputes []storedDispute
 }
 
 func newMemOrders() *memOrders {
@@ -847,6 +860,23 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 	if !ok {
 		return domain.Order{}, domain.ErrNotFound
 	}
+	disputes := make([]domain.Dispute, 0)
+	for _, dispute := range m.disputes {
+		if dispute.orderID != order.id {
+			continue
+		}
+		disputes = append(disputes, domain.Dispute{
+			ID:           dispute.id,
+			OrderID:      dispute.orderID,
+			OpenedBy:     dispute.openedBy,
+			BusinessName: dispute.businessName,
+			Reason:       dispute.reason,
+			Status:       dispute.status,
+			Outcome:      dispute.outcome,
+			CreatedAt:    dispute.createdAt,
+			ResolvedAt:   dispute.resolvedAt,
+		})
+	}
 	participants := make([]domain.Participation, 0, len(order.parts))
 	var yours *int
 	var payment *string
@@ -888,8 +918,132 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 		YourDeliveryStatus: delivery,
 		AllPaid:            allPaid,
 		Participants:       participants,
+		Disputes:           disputes,
 		Product:            product,
 	}, nil
+}
+
+func (m *memOrders) OpenDispute(ctx context.Context, orderID, userID uuid.UUID, reason string) (domain.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order := m.find(orderID)
+	if order == nil {
+		return domain.Order{}, domain.ErrNotFound
+	}
+	m.settle(ctx, order, time.Now().UTC())
+	if !domain.DisputeAllowed(order.status) {
+		return domain.Order{}, domain.ErrDisputeNotAllowed
+	}
+	member := false
+	for _, part := range order.parts {
+		if part.userID == userID {
+			member = true
+			break
+		}
+	}
+	if !member {
+		return domain.Order{}, domain.ErrNotParticipant
+	}
+	for _, dispute := range m.disputes {
+		if dispute.orderID == orderID && dispute.openedBy == userID && dispute.status == domain.DisputeOpen {
+			return domain.Order{}, domain.ErrDisputeOpen
+		}
+	}
+	m.disputes = append(m.disputes, storedDispute{
+		id:           uuid.New(),
+		orderID:      orderID,
+		openedBy:     userID,
+		businessName: "Business",
+		reason:       reason,
+		status:       domain.DisputeOpen,
+		createdAt:    time.Now().UTC(),
+	})
+	domain.AddNotice(ctx, domain.Notice{
+		Kind:    domain.NoticeDisputeOpened,
+		OrderID: orderID,
+		UserIDs: participantIDs(order),
+	})
+	return m.view(order, &userID)
+}
+
+func (m *memOrders) ResolveDispute(ctx context.Context, disputeID uuid.UUID, outcome string) (domain.AdminDispute, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.disputes {
+		if m.disputes[i].id != disputeID {
+			continue
+		}
+		if m.disputes[i].status != domain.DisputeOpen {
+			return domain.AdminDispute{}, domain.ErrDisputeClosed
+		}
+		now := time.Now().UTC()
+		m.disputes[i].status = domain.DisputeResolved
+		m.disputes[i].outcome = outcome
+		m.disputes[i].resolvedAt = &now
+		order := m.find(m.disputes[i].orderID)
+		productName := ""
+		orderStatus := ""
+		if order != nil {
+			orderStatus = order.status
+			if product, ok := m.productByID(order.productID); ok {
+				productName = product.Name
+			}
+		}
+		domain.AddNotice(ctx, domain.Notice{
+			Kind:    domain.NoticeDisputeResolved,
+			OrderID: m.disputes[i].orderID,
+			UserIDs: []uuid.UUID{m.disputes[i].openedBy},
+		})
+		return domain.AdminDispute{
+			Dispute: domain.Dispute{
+				ID:           m.disputes[i].id,
+				OrderID:      m.disputes[i].orderID,
+				OpenedBy:     m.disputes[i].openedBy,
+				BusinessName: m.disputes[i].businessName,
+				Reason:       m.disputes[i].reason,
+				Status:       m.disputes[i].status,
+				Outcome:      m.disputes[i].outcome,
+				CreatedAt:    m.disputes[i].createdAt,
+				ResolvedAt:   m.disputes[i].resolvedAt,
+			},
+			ProductName: productName,
+			OrderStatus: orderStatus,
+		}, nil
+	}
+	return domain.AdminDispute{}, domain.ErrNotFound
+}
+
+func (m *memOrders) ListDisputes(context.Context) ([]domain.AdminDispute, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := make([]domain.AdminDispute, 0, len(m.disputes))
+	for _, dispute := range m.disputes {
+		order := m.find(dispute.orderID)
+		productName := ""
+		orderStatus := ""
+		if order != nil {
+			orderStatus = order.status
+			if product, ok := m.productByID(order.productID); ok {
+				productName = product.Name
+			}
+		}
+		items = append(items, domain.AdminDispute{
+			Dispute: domain.Dispute{
+				ID:           dispute.id,
+				OrderID:      dispute.orderID,
+				OpenedBy:     dispute.openedBy,
+				BusinessName: dispute.businessName,
+				Reason:       dispute.reason,
+				Status:       dispute.status,
+				Outcome:      dispute.outcome,
+				CreatedAt:    dispute.createdAt,
+				ResolvedAt:   dispute.resolvedAt,
+			},
+			ProductName: productName,
+			OrderStatus: orderStatus,
+		})
+	}
+	return items, nil
 }
 
 func (m *memOrders) visibleProduct(id uuid.UUID, includeUnverified bool) (domain.Product, bool) {
@@ -981,6 +1135,69 @@ func (c *captureNotifier) list() []domain.Notice {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]domain.Notice(nil), c.items...)
+}
+
+func TestOpenAndResolveDispute(t *testing.T) {
+	orders := newMemOrders()
+	users := newFakeUsers()
+	router, tokens := adminRouter(nil, orders, users, nil)
+	payer, payerCookie := signedIn(t, users, tokens, domain.RoleBusiness, "payer-dispute@harbor.example")
+	_, outsiderCookie := signedIn(t, users, tokens, domain.RoleBusiness, "outsider-dispute@harbor.example")
+	_, adminCookie := signedIn(t, users, tokens, domain.RoleAdmin, "admin-dispute@harbor.example")
+	future := time.Date(2099, 4, 1, 23, 59, 59, 0, time.UTC)
+	confirmedID := uuid.MustParse("cccccccc-cccc-4ccc-8ccc-ccccccccccc1")
+	openID := uuid.MustParse("cccccccc-cccc-4ccc-8ccc-ccccccccccc2")
+	orders.seed(storedOrder{
+		id: confirmedID, productID: towelID, status: domain.OrderConfirmed, moq: 10, deadline: future,
+		createdAt: time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC),
+		parts:     []participation{{userID: payer.ID, quantity: 10}},
+	})
+	orders.seed(storedOrder{
+		id: openID, productID: towelID, status: domain.OrderOpen, moq: 20, deadline: future,
+		createdAt: time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC),
+		parts:     []participation{{userID: payer.ID, quantity: 2}},
+	})
+
+	early, _ := request(t, router, http.MethodPost, "/orders/"+openID.String()+"/disputes", map[string]any{"reason": "The towels arrived torn"}, payerCookie, http.StatusBadRequest)
+	if early["message"] != "This order cannot be disputed" {
+		t.Fatalf("open = %#v", early)
+	}
+	outsider, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/disputes", map[string]any{"reason": "The towels arrived torn"}, outsiderCookie, http.StatusForbidden)
+	if outsider["message"] != "You are not part of this order" {
+		t.Fatalf("outsider = %#v", outsider)
+	}
+	short, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/disputes", map[string]any{"reason": "short"}, payerCookie, http.StatusUnprocessableEntity)
+	if short["fieldErrors"].(map[string]any)["reason"] != "Use at least 8 characters" {
+		t.Fatalf("short = %#v", short)
+	}
+
+	opened, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/disputes", map[string]any{"reason": "The towels arrived torn"}, payerCookie, http.StatusCreated)
+	rows := opened["disputes"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["status"] != domain.DisputeOpen || rows[0].(map[string]any)["reason"] != "The towels arrived torn" {
+		t.Fatalf("opened = %#v", opened["disputes"])
+	}
+	again, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/disputes", map[string]any{"reason": "The towels arrived torn"}, payerCookie, http.StatusConflict)
+	if again["message"] != "You already have an open dispute on this order" {
+		t.Fatalf("again = %#v", again)
+	}
+
+	disputeID := rows[0].(map[string]any)["id"].(string)
+	blank, _ := request(t, router, http.MethodPost, "/admin/disputes/"+disputeID+"/resolve", map[string]any{"outcome": "  "}, adminCookie, http.StatusUnprocessableEntity)
+	if blank["fieldErrors"].(map[string]any)["outcome"] != "Record the outcome" {
+		t.Fatalf("blank = %#v", blank)
+	}
+	resolved, _ := request(t, router, http.MethodPost, "/admin/disputes/"+disputeID+"/resolve", map[string]any{"outcome": "  Replacement sent  "}, adminCookie, http.StatusOK)
+	if resolved["status"] != domain.DisputeResolved || resolved["outcome"] != "Replacement sent" || resolved["productName"] == "" {
+		t.Fatalf("resolved = %#v", resolved)
+	}
+	repeat, _ := request(t, router, http.MethodPost, "/admin/disputes/"+disputeID+"/resolve", map[string]any{"outcome": "Again"}, adminCookie, http.StatusBadRequest)
+	if repeat["message"] != "This dispute is already resolved" {
+		t.Fatalf("repeat = %#v", repeat)
+	}
+	listed, _ := requestList(t, router, "/admin/disputes", adminCookie, http.StatusOK)
+	if len(listed) != 1 || listed[0].(map[string]any)["id"] != disputeID {
+		t.Fatalf("listed = %#v", listed)
+	}
 }
 
 func collectedQuantity(order *storedOrder) int {

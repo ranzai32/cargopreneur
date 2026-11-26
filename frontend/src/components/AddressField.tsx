@@ -78,7 +78,7 @@ export function AddressField({
               </button>
             </li>
           ))}
-          <li className="px-3 py-1 text-xs text-ink-600">Suggestions by 2GIS</li>
+          <li className="px-3 py-1 text-xs text-ink-600">© OpenStreetMap</li>
         </ul>
       )}
     </div>
