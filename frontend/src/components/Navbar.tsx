@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react'
 import { Button } from './Button'
 import { Container } from './Container'
 import { Logo } from './Logo'
+import { NotificationBell } from './NotificationBell'
 import { useAppState } from '../lib/app-state'
 
 const links = [
@@ -112,20 +113,23 @@ export function Navbar() {
             </Link>
           ))}
         </nav>
-        <div className="hidden items-center gap-2 lg:flex">
-          <AccountActions userName={ready ? user?.businessName : undefined} onLogout={logout} />
+        <div className="flex items-center gap-2">
+          {ready && user && <NotificationBell />}
+          <div className="hidden items-center gap-2 lg:flex">
+            <AccountActions userName={ready ? user?.businessName : undefined} onLogout={logout} />
+          </div>
+          <button
+            ref={toggleRef}
+            type="button"
+            className="inline-flex size-11 items-center justify-center rounded-md text-ink-900 hover:bg-ink-100 lg:hidden"
+            aria-expanded={open}
+            aria-controls={menuId}
+            aria-label="Menu"
+            onClick={closeFromToggle}
+          >
+            {open ? <X aria-hidden="true" className="size-5" /> : <Menu aria-hidden="true" className="size-5" />}
+          </button>
         </div>
-        <button
-          ref={toggleRef}
-          type="button"
-          className="inline-flex size-11 items-center justify-center rounded-md text-ink-900 hover:bg-ink-100 lg:hidden"
-          aria-expanded={open}
-          aria-controls={menuId}
-          aria-label="Menu"
-          onClick={closeFromToggle}
-        >
-          {open ? <X aria-hidden="true" className="size-5" /> : <Menu aria-hidden="true" className="size-5" />}
-        </button>
       </Container>
       <div
         id={menuId}

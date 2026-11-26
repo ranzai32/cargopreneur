@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { exampleCategories, exampleProducts, exampleSuppliers, initialExampleOrders } from '../data/exampleCatalog'
-import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { AdminDispute, ApiNotification, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, NotificationKind, ProductFilters, ProductPage } from '../types/catalog'
 import { ApiError, api, exampleMode } from './api'
 import { deliveryChoice } from './delivery'
 import type { ProfileInput } from './api'
@@ -9,6 +9,9 @@ import { filterProducts } from './catalog'
 
 const userKey = 'cargoprener-user'
 const orderKey = 'cargoprener-orders'
+const noticeKey = 'cargoprener-notifications'
+
+type ExampleNotification = ApiNotification & { userId: string }
 
 type RegisterInput = {
   businessName: string
@@ -63,6 +66,8 @@ type AppState = {
   resolveDispute: (id: string, outcome: string) => Promise<AdminDispute>
   shipParticipation: (id: string) => Promise<ApiOrder>
   deliverParticipation: (id: string) => Promise<ApiOrder>
+  loadNotifications: () => Promise<ApiNotification[]>
+  markNotificationsRead: () => Promise<void>
 }
 
 const AppStateContext = createContext<AppState | null>(null)
@@ -86,6 +91,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     },
   ])
 
+  const [notices, setNotices] = useState<ExampleNotification[]>(() => (
+    exampleMode ? readJson<ExampleNotification[]>(noticeKey) ?? [] : []
+  ))
+
   useEffect(() => {
     if (exampleMode) {
       setUser(readJson<ApiUser>(userKey))
@@ -101,6 +110,26 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!exampleMode || !ready) return
     sessionStorage.setItem(orderKey, JSON.stringify(orders))
   }, [orders, ready])
+
+  useEffect(() => {
+    if (!exampleMode || !ready) return
+    sessionStorage.setItem(noticeKey, JSON.stringify(notices))
+  }, [notices, ready])
+
+  function addExampleNotice(userId: string, kind: NotificationKind, order: ApiOrder) {
+    setNotices((current) => [
+      {
+        id: crypto.randomUUID(),
+        userId,
+        kind,
+        orderId: order.id,
+        productName: order.product.name,
+        createdAt: new Date().toISOString(),
+        read: false,
+      },
+      ...current,
+    ])
+  }
 
   const value = useMemo<AppState>(() => ({
     ready,
@@ -207,6 +236,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         product,
       }
       setOrders((current) => [created, ...current])
+      addExampleNotice(user.id, 'order_created', created)
+      if (created.status === 'confirmed') addExampleNotice(user.id, 'order_confirmed', created)
       return created
     },
     async joinOrder(id, quantity) {
@@ -244,6 +275,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         status: collectedQty >= current.moq ? 'confirmed' : 'open',
       }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
+      if (updated.status === 'confirmed') addExampleNotice(user.id, 'order_confirmed', updated)
       return updated
     },
     async pay(id, input) {
@@ -289,6 +321,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         status: allPaid ? 'paid' : 'confirmed',
       }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
+      addExampleNotice(user.id, 'payment_received', updated)
       return updated
     },
     async loadAdminSuppliers() {
@@ -402,6 +435,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         ],
       }
       setOrders((items) => items.map((item) => (item.id === orderId ? updated : item)))
+      addExampleNotice(user.id, 'dispute_opened', updated)
       return updated
     },
     async loadAdminDisputes() {
@@ -451,7 +485,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setOrders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
       return updated
     },
-  }), [orders, ready, suppliers, user])
+    async loadNotifications() {
+      if (!user) return []
+      if (!exampleMode) return api.notifications()
+      return notices.filter((item) => item.userId === user.id)
+    },
+    async markNotificationsRead() {
+      if (!user) return
+      if (!exampleMode) return api.readNotifications()
+      setNotices((current) => current.map((item) => (item.userId === user.id ? { ...item, read: true } : item)))
+    },
+  }), [notices, orders, ready, suppliers, user])
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
 }

@@ -14,19 +14,20 @@ import (
 )
 
 type RouterConfig struct {
-	Users        UserStore
-	Pinger       Pinger
-	Passwords    *auth.Hasher
-	Tokens       *auth.Tokens
-	CookieSecure bool
-	CORSOrigin   string
-	Limiter      *RateLimiter
-	Catalog      CatalogStore
-	Orders       OrderStore
-	Notifier     domain.Notifier
-	UploadDir    string
-	Supplier     SupplierAPI
-	Addresses    AddressBook
+	Users         UserStore
+	Pinger        Pinger
+	Passwords     *auth.Hasher
+	Tokens        *auth.Tokens
+	CookieSecure  bool
+	CORSOrigin    string
+	Limiter       *RateLimiter
+	Catalog       CatalogStore
+	Orders        OrderStore
+	Notifier      domain.Notifier
+	Notifications NotificationStore
+	UploadDir     string
+	Supplier      SupplierAPI
+	Addresses     AddressBook
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -82,6 +83,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	notifier := cfg.Notifier
 	if notifier == nil {
 		notifier = domain.NopNotifier{}
+	}
+
+	if cfg.Notifications != nil {
+		notifications := NotificationHandler{store: cfg.Notifications}
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/notifications", notifications.List)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/notifications/read", notifications.MarkRead)
 	}
 
 	if cfg.Supplier != nil {

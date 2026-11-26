@@ -12,7 +12,6 @@ import (
 
 	"cargoprener/backend/internal/auth"
 	"cargoprener/backend/internal/config"
-	"cargoprener/backend/internal/domain"
 	"cargoprener/backend/internal/httpapi"
 	"cargoprener/backend/internal/store"
 )
@@ -53,19 +52,20 @@ func main() {
 	}
 
 	router := httpapi.NewRouter(httpapi.RouterConfig{
-		Users:        db,
-		Pinger:       db,
-		Passwords:    passwords,
-		Tokens:       auth.NewTokens(cfg.JWTSecret, auth.TokenTTL),
-		CookieSecure: cfg.CookieSecure,
-		CORSOrigin:   cfg.CORSOrigin,
-		Limiter:      httpapi.NewRateLimiter(10, time.Minute),
-		Catalog:      db,
-		Orders:       db,
-		Notifier:     domain.NopNotifier{},
-		UploadDir:    cfg.UploadDir,
-		Supplier:     db,
-		Addresses:    db,
+		Users:         db,
+		Pinger:        db,
+		Passwords:     passwords,
+		Tokens:        auth.NewTokens(cfg.JWTSecret, auth.TokenTTL),
+		CookieSecure:  cfg.CookieSecure,
+		CORSOrigin:    cfg.CORSOrigin,
+		Limiter:       httpapi.NewRateLimiter(10, time.Minute),
+		Catalog:       db,
+		Orders:        db,
+		Notifier:      db,
+		Notifications: db,
+		UploadDir:     cfg.UploadDir,
+		Supplier:      db,
+		Addresses:     db,
 	})
 
 	server := &http.Server{

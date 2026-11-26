@@ -140,14 +140,19 @@ func (s *Store) CreateOrder(ctx context.Context, input domain.NewOrder) (domain.
 			return nil, domain.ErrNotFound
 		}
 		order = loaded[0]
+		notices := []domain.Notice{{
+			Kind:    domain.NoticeOrderCreated,
+			OrderID: orderID,
+			UserIDs: []uuid.UUID{input.CreatorID},
+		}}
 		if status != domain.OrderConfirmed {
-			return nil, nil
+			return notices, nil
 		}
-		return []domain.Notice{{
+		return append(notices, domain.Notice{
 			Kind:    domain.NoticeOrderConfirmed,
 			OrderID: orderID,
 			UserIDs: []uuid.UUID{input.CreatorID},
-		}}, nil
+		}), nil
 	})
 	if err != nil {
 		return domain.Order{}, err
