@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppStateProvider } from './lib/app-state'
+import { AccountPage } from './pages/AccountPage'
 import { AdminOrdersPage } from './pages/admin/OrdersPage'
 import { AdminProductsPage } from './pages/admin/ProductsPage'
 import { AdminSuppliersPage } from './pages/admin/SuppliersPage'
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/account" element={<AccountPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="/catalog/:productId" element={<ProductPage />} />
           <Route path="/orders" element={<OrdersPage />} />

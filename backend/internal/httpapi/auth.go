@@ -16,6 +16,7 @@ type UserStore interface {
 	UserLookup
 	CreateUser(ctx context.Context, input domain.NewUser) (domain.User, error)
 	FindUserByEmail(ctx context.Context, email string) (domain.User, error)
+	UpdateUser(ctx context.Context, id uuid.UUID, input domain.ProfileInput) (domain.User, error)
 }
 
 type Pinger interface {
@@ -112,6 +113,41 @@ func (h AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, ok := userFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, user.JSON())
+}
+
+func (h AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	current, ok := userFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	var input domain.ProfileInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	input.Normalize()
+	if fieldErrors := input.Validate(); len(fieldErrors) > 0 {
+		writeValidation(w, fieldErrors)
+		return
+	}
+
+	user, err := h.users.UpdateUser(r.Context(), current.ID, input)
+	if errors.Is(err, domain.ErrEmailTaken) {
+		writeError(w, http.StatusConflict, "Email is already registered", map[string]string{
+			"email": "An account with this email already exists",
+		})
+		return
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("update user", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, user.JSON())

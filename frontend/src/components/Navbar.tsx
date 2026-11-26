@@ -162,9 +162,9 @@ function AccountActions({
   if (userName) {
     return (
       <>
-        <span className={stacked ? 'px-2 text-sm font-semibold text-ink-900' : 'max-w-40 truncate text-sm font-semibold text-ink-900'}>
+        <Link to="/account" className={stacked ? 'px-2 text-sm font-semibold text-ink-900 hover:text-accent-800' : 'max-w-40 truncate rounded-sm text-sm font-semibold text-ink-900 hover:text-accent-800'}>
           {userName}
-        </span>
+        </Link>
         <Button variant="ghost" size="sm" className={stacked ? 'w-full' : undefined} onClick={() => void onLogout()}>
           Log out
         </Button>

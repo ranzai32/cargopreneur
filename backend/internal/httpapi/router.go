@@ -59,6 +59,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(rateLimit(cfg.Limiter)).Post("/login", authHandler.Login)
 		r.Post("/logout", authHandler.Logout)
 		r.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/me", authHandler.Me)
+		r.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/me", authHandler.UpdateMe)
 	})
 
 	if cfg.Catalog != nil {

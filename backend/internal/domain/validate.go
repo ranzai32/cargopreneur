@@ -32,8 +32,41 @@ func (in *RegisterInput) Normalize() {
 	in.Region = strings.TrimSpace(in.Region)
 }
 
+type ProfileInput struct {
+	BusinessName string `json:"businessName"`
+	ContactName  string `json:"contactName"`
+	Email        string `json:"email"`
+	Region       string `json:"region"`
+}
+
 func (in *LoginInput) Normalize() {
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+}
+
+func (in *ProfileInput) Normalize() {
+	in.BusinessName = strings.TrimSpace(in.BusinessName)
+	in.ContactName = strings.TrimSpace(in.ContactName)
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	in.Region = strings.TrimSpace(in.Region)
+}
+
+func (in ProfileInput) Validate() map[string]string {
+	errs := map[string]string{}
+	if in.BusinessName == "" {
+		errs["businessName"] = "Business name is required"
+	}
+	if in.ContactName == "" {
+		errs["contactName"] = "Contact name is required"
+	}
+	if in.Email == "" {
+		errs["email"] = "Email is required"
+	} else if !emailPattern.MatchString(in.Email) {
+		errs["email"] = "Enter a valid email address"
+	}
+	if in.Region == "" {
+		errs["region"] = "Region is required"
+	}
+	return errs
 }
 
 func (in RegisterInput) Validate() map[string]string {

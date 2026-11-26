@@ -104,6 +104,42 @@ func TestRegisterValidationAndConflict(t *testing.T) {
 	}
 }
 
+func TestUpdateProfile(t *testing.T) {
+	router := testRouter(newFakeUsers())
+	_, _ = request(t, router, http.MethodPost, "/auth/me", map[string]string{}, nil, http.StatusUnauthorized)
+
+	_, _ = registerBody(t, router, map[string]string{
+		"businessName": "Other Shop",
+		"contactName":  "Bea",
+		"email":        "bea@other.example",
+		"password":     "long-enough",
+		"region":       "Columbus, OH",
+	}, http.StatusCreated)
+	_, rec := registerBody(t, router, map[string]string{
+		"businessName": "Harbor Shop",
+		"contactName":  "Ada Lopez",
+		"email":        "ada@harbor.example",
+		"password":     "long-enough",
+		"region":       "Grand Rapids, MI",
+	}, http.StatusCreated)
+	cookie := sessionCookieFrom(t, rec)
+
+	profile := map[string]string{
+		"businessName": "Harbor Goods",
+		"contactName":  "Ada Lopez",
+		"email":        "bea@other.example",
+		"region":       "Detroit, MI",
+	}
+	_, _ = request(t, router, http.MethodPost, "/auth/me", profile, cookie, http.StatusConflict)
+
+	profile["email"] = "ada@harbor.example"
+	_, _ = request(t, router, http.MethodPost, "/auth/me", profile, cookie, http.StatusOK)
+	me, _ := request(t, router, http.MethodGet, "/auth/me", nil, cookie, http.StatusOK)
+	if me["businessName"] != "Harbor Goods" || me["region"] != "Detroit, MI" {
+		t.Fatalf("me = %#v", me)
+	}
+}
+
 func TestLoginHidesWhichFieldFailed(t *testing.T) {
 	router := testRouter(newFakeUsers())
 	_, _ = registerBody(t, router, map[string]string{
@@ -255,6 +291,26 @@ func (f *fakeUsers) FindUserByID(_ context.Context, id uuid.UUID) (domain.User, 
 	if !ok {
 		return domain.User{}, domain.ErrNotFound
 	}
+	return user, nil
+}
+
+func (f *fakeUsers) UpdateUser(_ context.Context, id uuid.UUID, input domain.ProfileInput) (domain.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	user, ok := f.byID[id]
+	if !ok {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if other, taken := f.byEmail[input.Email]; taken && other.ID != id {
+		return domain.User{}, domain.ErrEmailTaken
+	}
+	delete(f.byEmail, user.Email)
+	user.BusinessName = input.BusinessName
+	user.ContactName = input.ContactName
+	user.Email = input.Email
+	user.Region = input.Region
+	f.byEmail[user.Email] = user
+	f.byID[user.ID] = user
 	return user, nil
 }
 

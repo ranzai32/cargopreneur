@@ -88,6 +88,27 @@ func (s *Store) FindUserByID(ctx context.Context, id uuid.UUID) (domain.User, er
 	return user, nil
 }
 
+func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, input domain.ProfileInput) (domain.User, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE users
+		SET business_name = $2, contact_name = $3, email = $4, region = $5
+		WHERE id = $1
+		RETURNING id, business_name, contact_name, email, password_hash, region, role, created_at
+	`, id, input.BusinessName, input.ContactName, input.Email, input.Region)
+	user, err := scanUser(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.User{}, domain.ErrEmailTaken
+		}
+		return domain.User{}, fmt.Errorf("update user: %w", err)
+	}
+	return user, nil
+}
+
 func (s *Store) EnsureAdmin(ctx context.Context, email, password string, hash func(string) (string, error)) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || password == "" {
