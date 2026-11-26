@@ -633,7 +633,11 @@ func selectOrders(ctx context.Context, db orderDB, status string, viewerID *uuid
 	if err != nil {
 		return nil, err
 	}
-	return attachParticipants(ctx, db, withTiers)
+	withParts, err := attachParticipants(ctx, db, withTiers)
+	if err != nil {
+		return nil, err
+	}
+	return attachDisputes(ctx, db, withParts)
 }
 
 func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) ([]domain.Order, error) {
@@ -673,6 +677,229 @@ func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) 
 		return nil, fmt.Errorf("list participations: %w", err)
 	}
 	return orders, nil
+}
+
+func attachDisputes(ctx context.Context, db orderDB, orders []domain.Order) ([]domain.Order, error) {
+	ids := make([]uuid.UUID, len(orders))
+	index := make(map[uuid.UUID]int, len(orders))
+	for i := range orders {
+		ids[i] = orders[i].ID
+		index[orders[i].ID] = i
+		orders[i].Disputes = []domain.Dispute{}
+	}
+	if len(ids) == 0 {
+		return orders, nil
+	}
+	rows, err := db.Query(ctx, `
+		SELECT d.id, d.order_id, d.opened_by, u.business_name, d.reason, d.status, d.outcome, d.created_at, d.resolved_at
+		FROM disputes d
+		JOIN users u ON u.id = d.opened_by
+		WHERE d.order_id = ANY($1)
+		ORDER BY d.created_at ASC, d.id ASC
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list disputes: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderID uuid.UUID
+		var dispute domain.Dispute
+		if err := rows.Scan(&dispute.ID, &orderID, &dispute.OpenedBy, &dispute.BusinessName, &dispute.Reason, &dispute.Status, &dispute.Outcome, &dispute.CreatedAt, &dispute.ResolvedAt); err != nil {
+			return nil, fmt.Errorf("scan dispute: %w", err)
+		}
+		dispute.OrderID = orderID
+		slot, ok := index[orderID]
+		if !ok {
+			continue
+		}
+		orders[slot].Disputes = append(orders[slot].Disputes, dispute)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list disputes: %w", err)
+	}
+	return orders, nil
+}
+
+func (s *Store) OpenDispute(ctx context.Context, orderID, userID uuid.UUID, reason string) (domain.Order, error) {
+	var order domain.Order
+	var denied error
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		head, err := lockOrder(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		collected, userIDs, err := participationSummary(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		notices, err := settleHead(ctx, tx, &head, collected, userIDs, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		if !domain.DisputeAllowed(head.Status) {
+			denied = domain.ErrDisputeNotAllowed
+			return notices, nil
+		}
+		var member bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM order_participations WHERE order_id = $1 AND user_id = $2
+			)
+		`, orderID, userID).Scan(&member); err != nil {
+			return nil, fmt.Errorf("check participation: %w", err)
+		}
+		if !member {
+			denied = domain.ErrNotParticipant
+			return notices, nil
+		}
+		var open bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM disputes WHERE order_id = $1 AND opened_by = $2 AND status = 'open'
+			)
+		`, orderID, userID).Scan(&open); err != nil {
+			return nil, fmt.Errorf("check open dispute: %w", err)
+		}
+		if open {
+			denied = domain.ErrDisputeOpen
+			return notices, nil
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO disputes (order_id, opened_by, reason)
+			VALUES ($1, $2, $3)
+		`, orderID, userID, reason); err != nil {
+			return nil, fmt.Errorf("insert dispute: %w", err)
+		}
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID)
+		if err != nil {
+			return nil, err
+		}
+		if len(loaded) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		order = loaded[0]
+		notices = append(notices, domain.Notice{
+			Kind:    domain.NoticeDisputeOpened,
+			OrderID: orderID,
+			UserIDs: userIDs,
+		})
+		return notices, nil
+	})
+	if err != nil {
+		return domain.Order{}, err
+	}
+	if denied != nil {
+		return domain.Order{}, denied
+	}
+	return order, nil
+}
+
+func (s *Store) ResolveDispute(ctx context.Context, disputeID uuid.UUID, outcome string) (domain.AdminDispute, error) {
+	var dispute domain.AdminDispute
+	var denied error
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		var orderID uuid.UUID
+		var status string
+		err := tx.QueryRow(ctx, `
+			SELECT id, order_id, status FROM disputes WHERE id = $1 FOR UPDATE
+		`, disputeID).Scan(&dispute.ID, &orderID, &status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock dispute: %w", err)
+		}
+		if status != domain.DisputeOpen {
+			denied = domain.ErrDisputeClosed
+			return nil, nil
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE disputes
+			SET status = 'resolved', outcome = $2, resolved_at = now()
+			WHERE id = $1
+		`, disputeID, outcome); err != nil {
+			return nil, fmt.Errorf("resolve dispute: %w", err)
+		}
+		loaded, err := selectAdminDispute(ctx, tx, disputeID)
+		if err != nil {
+			return nil, err
+		}
+		dispute = loaded
+		return []domain.Notice{{
+			Kind:    domain.NoticeDisputeResolved,
+			OrderID: orderID,
+			UserIDs: []uuid.UUID{loaded.OpenedBy},
+		}}, nil
+	})
+	if err != nil {
+		return domain.AdminDispute{}, err
+	}
+	if denied != nil {
+		return domain.AdminDispute{}, denied
+	}
+	return dispute, nil
+}
+
+func (s *Store) ListDisputes(ctx context.Context) ([]domain.AdminDispute, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT d.id, d.order_id, d.opened_by, u.business_name, d.reason, d.status, d.outcome, d.created_at, d.resolved_at,
+		       pr.name, o.status
+		FROM disputes d
+		JOIN users u ON u.id = d.opened_by
+		JOIN orders o ON o.id = d.order_id
+		JOIN products pr ON pr.id = o.product_id
+		ORDER BY CASE WHEN d.status = 'open' THEN 0 ELSE 1 END, d.created_at DESC, d.id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list disputes: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.AdminDispute, 0)
+	for rows.Next() {
+		item, err := scanAdminDispute(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list disputes: %w", err)
+	}
+	return items, nil
+}
+
+func selectAdminDispute(ctx context.Context, db orderDB, id uuid.UUID) (domain.AdminDispute, error) {
+	row := db.QueryRow(ctx, `
+		SELECT d.id, d.order_id, d.opened_by, u.business_name, d.reason, d.status, d.outcome, d.created_at, d.resolved_at,
+		       pr.name, o.status
+		FROM disputes d
+		JOIN users u ON u.id = d.opened_by
+		JOIN orders o ON o.id = d.order_id
+		JOIN products pr ON pr.id = o.product_id
+		WHERE d.id = $1
+	`, id)
+	return scanAdminDispute(row)
+}
+
+func scanAdminDispute(row rowScanner) (domain.AdminDispute, error) {
+	var item domain.AdminDispute
+	err := row.Scan(
+		&item.ID,
+		&item.OrderID,
+		&item.OpenedBy,
+		&item.BusinessName,
+		&item.Reason,
+		&item.Status,
+		&item.Outcome,
+		&item.CreatedAt,
+		&item.ResolvedAt,
+		&item.ProductName,
+		&item.OrderStatus,
+	)
+	if err != nil {
+		return domain.AdminDispute{}, fmt.Errorf("scan dispute: %w", err)
+	}
+	return item, nil
 }
 
 func attachOrderTiers(ctx context.Context, db orderDB, orders []domain.Order) ([]domain.Order, error) {

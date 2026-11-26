@@ -1,4 +1,4 @@
-import type { ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 
 export const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
@@ -59,6 +59,11 @@ export const api = {
   }) => request<ApiProduct>('/admin/products', { method: 'POST', body }),
   adminOrders: () => request<ApiOrder[]>('/admin/orders'),
   cancelOrder: (id: string) => request<ApiOrder>(`/admin/orders/${id}/cancel`, { method: 'POST' }),
+  openDispute: (id: string, reason: string) =>
+    request<ApiOrder>(`/orders/${id}/disputes`, { method: 'POST', body: { reason } }),
+  adminDisputes: () => request<AdminDispute[]>('/admin/disputes'),
+  resolveDispute: (id: string, outcome: string) =>
+    request<AdminDispute>(`/admin/disputes/${id}/resolve`, { method: 'POST', body: { outcome } }),
   shipParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/ship`, { method: 'POST' }),
   deliverParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/deliver`, { method: 'POST' }),
 }

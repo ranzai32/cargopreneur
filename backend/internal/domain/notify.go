@@ -12,6 +12,8 @@ const (
 	NoticePaymentReceived   = "payment_received"
 	NoticeShipmentSent      = "shipment_sent"
 	NoticeShipmentDelivered = "shipment_delivered"
+	NoticeDisputeOpened     = "dispute_opened"
+	NoticeDisputeResolved   = "dispute_resolved"
 )
 
 type Notice struct {

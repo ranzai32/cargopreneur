@@ -22,6 +22,9 @@ type OrderStore interface {
 	CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
+	OpenDispute(ctx context.Context, orderID, userID uuid.UUID, reason string) (domain.Order, error)
+	ResolveDispute(ctx context.Context, disputeID uuid.UUID, outcome string) (domain.AdminDispute, error)
+	ListDisputes(ctx context.Context) ([]domain.AdminDispute, error)
 }
 
 type OrderHandler struct {
@@ -194,6 +197,52 @@ func (h OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, order.JSON())
+}
+
+func (h OrderHandler) OpenDispute(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Authentication required", nil)
+		return
+	}
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body domain.OpenDisputeBody
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	reason, fieldErrors := domain.ParseDisputeReason(body.Reason)
+	if len(fieldErrors) > 0 {
+		writeValidation(w, fieldErrors)
+		return
+	}
+	ctx := domain.WithNoticeLog(r.Context())
+	order, err := h.orders.OpenDispute(ctx, id, user.ID, reason)
+	h.dispatchNotices(ctx)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Order not found", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrDisputeNotAllowed) {
+		writeError(w, http.StatusBadRequest, "This order cannot be disputed", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrNotParticipant) {
+		writeError(w, http.StatusForbidden, "You are not part of this order", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrDisputeOpen) {
+		writeError(w, http.StatusConflict, "You already have an open dispute on this order", nil)
+		return
+	}
+	if err != nil {
+		slog.Error("open dispute", "error", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong", nil)
+		return
+	}
+	writeJSON(w, http.StatusCreated, order.JSON())
 }
 
 func (h OrderHandler) dispatchNotices(ctx context.Context) {

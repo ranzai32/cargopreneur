@@ -10,6 +10,7 @@ const links = [
   { to: '/admin/suppliers', label: 'Suppliers' },
   { to: '/admin/products', label: 'Products' },
   { to: '/admin/orders', label: 'Orders' },
+  { to: '/admin/disputes', label: 'Disputes' },
 ]
 
 export function AdminFrame({
