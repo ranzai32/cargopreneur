@@ -5,6 +5,8 @@ export type ApiSupplier = {
   region: string
   isVerified: boolean
   productCount?: number
+  rating?: number
+  reviewCount?: number
 }
 
 export type ApiPriceTier = {
@@ -21,6 +23,8 @@ export type ApiProduct = {
   unit: string
   retailPrice: number
   imageUrl: string | null
+  rating: number
+  reviewCount: number
   supplier: {
     id: string
     name: string
@@ -37,7 +41,8 @@ export type ApiUser = {
   contactName: string
   email: string
   region: string
-  role: 'business' | 'admin'
+  role: 'business' | 'admin' | 'supplier'
+  supplierId: string | null
   createdAt: string
 }
 
@@ -49,6 +54,14 @@ export type ApiParticipation = {
   shippingAddress: string
   paymentStatus: 'unpaid' | 'paid'
   deliveryStatus: DeliveryStatus
+}
+
+export type ApiReview = {
+  id: string
+  author: string
+  rating: number
+  body: string
+  createdAt: string
 }
 
 export type ApiDispute = {
@@ -95,7 +108,8 @@ export type ProductPage = {
 export type ProductFilters = {
   q?: string
   category?: string
-  sort?: 'newest' | 'name' | 'price_asc' | 'price_desc'
+  supplierId?: string
+  sort?: 'newest' | 'name' | 'price_asc' | 'price_desc' | 'rating'
   page?: number
   pageSize?: number
 }

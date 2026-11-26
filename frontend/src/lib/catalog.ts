@@ -14,6 +14,9 @@ export function filterProducts(products: ApiProduct[], filters: ProductFilters):
   if (filters.category) {
     items = items.filter((product) => product.category.toLowerCase() === filters.category?.toLowerCase())
   }
+  if (filters.supplierId) {
+    items = items.filter((product) => product.supplier.id === filters.supplierId)
+  }
   items = [...items].sort((left, right) => compareProducts(left, right, filters.sort ?? 'newest'))
   const total = items.length
   const start = (page - 1) * pageSize
@@ -22,6 +25,7 @@ export function filterProducts(products: ApiProduct[], filters: ProductFilters):
 
 function compareProducts(left: ApiProduct, right: ApiProduct, sort: NonNullable<ProductFilters['sort']>) {
   if (sort === 'name') return left.name.localeCompare(right.name)
+  if (sort === 'rating') return right.rating - left.rating || right.reviewCount - left.reviewCount
   if (sort === 'price_asc' || sort === 'price_desc') {
     const delta = lowestPrice(left) - lowestPrice(right)
     return sort === 'price_asc' ? delta : -delta

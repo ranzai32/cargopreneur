@@ -64,6 +64,7 @@ func main() {
 		Orders:       db,
 		Notifier:     domain.NopNotifier{},
 		UploadDir:    cfg.UploadDir,
+		Supplier:     db,
 	})
 
 	server := &http.Server{

@@ -42,6 +42,8 @@ const orderSelectSQL = `
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.delivery_status END),
 	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
 	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at, pr.image_url,
+	       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.product_id = pr.id), 0),
+	       COALESCE((SELECT COUNT(*)::int FROM reviews rv WHERE rv.product_id = pr.id), 0),
 	       s.id, s.name, s.region, s.is_verified
 	FROM orders o
 	JOIN products pr ON pr.id = o.product_id
@@ -59,7 +61,7 @@ func (s *Store) ListOrders(ctx context.Context, status string, viewerID *uuid.UU
 		if err != nil {
 			return nil, err
 		}
-		loaded, err := selectOrders(ctx, tx, status, viewerID, nil)
+		loaded, err := selectOrders(ctx, tx, status, viewerID, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +89,7 @@ func (s *Store) FindOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID
 		if err != nil {
 			return nil, err
 		}
-		loaded, err := selectOrders(ctx, tx, "", viewerID, &id)
+		loaded, err := selectOrders(ctx, tx, "", viewerID, &id, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +130,7 @@ func (s *Store) CreateOrder(ctx context.Context, input domain.NewOrder) (domain.
 		`, orderID, input.CreatorID, input.Quantity); err != nil {
 			return nil, fmt.Errorf("insert creator participation: %w", err)
 		}
-		loaded, err := selectOrders(ctx, tx, "", &input.CreatorID, &orderID)
+		loaded, err := selectOrders(ctx, tx, "", &input.CreatorID, &orderID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +200,7 @@ func (s *Store) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quanti
 				UserIDs: userIDs,
 			})
 		}
-		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID)
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +278,7 @@ func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippin
 				return nil, err
 			}
 		}
-		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID)
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +330,7 @@ func (s *Store) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UU
 			OrderID: id,
 			UserIDs: userIDs,
 		})
-		loaded, err := selectOrders(ctx, tx, "", viewerID, &id)
+		loaded, err := selectOrders(ctx, tx, "", viewerID, &id, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -348,14 +350,42 @@ func (s *Store) CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UU
 }
 
 func (s *Store) ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
-	return s.updateDelivery(ctx, participationID, viewerID, domain.DeliveryShipped)
+	return s.updateDelivery(ctx, participationID, viewerID, nil, domain.DeliveryShipped)
 }
 
 func (s *Store) DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
-	return s.updateDelivery(ctx, participationID, viewerID, domain.DeliveryDelivered)
+	return s.updateDelivery(ctx, participationID, viewerID, nil, domain.DeliveryDelivered)
 }
 
-func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID, next string) (domain.Order, error) {
+func (s *Store) ShipForSupplier(ctx context.Context, participationID, supplierID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return s.updateDelivery(ctx, participationID, viewerID, &supplierID, domain.DeliveryShipped)
+}
+
+func (s *Store) DeliverForSupplier(ctx context.Context, participationID, supplierID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error) {
+	return s.updateDelivery(ctx, participationID, viewerID, &supplierID, domain.DeliveryDelivered)
+}
+
+func (s *Store) ListOrdersForSupplier(ctx context.Context, supplierID uuid.UUID, viewerID *uuid.UUID) ([]domain.Order, error) {
+	var orders []domain.Order
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		notices, err := settleExpired(ctx, tx, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		loaded, err := selectOrders(ctx, tx, "", viewerID, nil, &supplierID)
+		if err != nil {
+			return nil, err
+		}
+		orders = loaded
+		return notices, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return orders, nil
+}
+
+func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID, supplierID *uuid.UUID, next string) (domain.Order, error) {
 	var order domain.Order
 	var rejected error
 	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
@@ -370,6 +400,21 @@ func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, v
 		}
 		if err != nil {
 			return nil, fmt.Errorf("find participation: %w", err)
+		}
+		if supplierID != nil {
+			var owner uuid.UUID
+			err = tx.QueryRow(ctx, `
+				SELECT pr.supplier_id
+				FROM orders o
+				JOIN products pr ON pr.id = o.product_id
+				WHERE o.id = $1
+			`, orderID).Scan(&owner)
+			if err != nil {
+				return nil, fmt.Errorf("find order supplier: %w", err)
+			}
+			if owner != *supplierID {
+				return nil, domain.ErrNotFound
+			}
 		}
 		head, err := lockOrder(ctx, tx, orderID)
 		if err != nil {
@@ -443,7 +488,7 @@ func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, v
 				UserIDs: []uuid.UUID{userID},
 			})
 		}
-		loaded, err := selectOrders(ctx, tx, "", viewerID, &orderID)
+		loaded, err := selectOrders(ctx, tx, "", viewerID, &orderID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -605,12 +650,16 @@ func participationSummary(ctx context.Context, db orderDB, orderID uuid.UUID) (i
 	return collected, userIDs, nil
 }
 
-func selectOrders(ctx context.Context, db orderDB, status string, viewerID *uuid.UUID, orderID *uuid.UUID) ([]domain.Order, error) {
+func selectOrders(ctx context.Context, db orderDB, status string, viewerID *uuid.UUID, orderID *uuid.UUID, supplierID *uuid.UUID) ([]domain.Order, error) {
 	args := []any{status, nullableUUID(viewerID)}
 	filters := []string{"($1 = '' OR o.status = $1)"}
 	if orderID != nil {
 		args = append(args, *orderID)
 		filters = append(filters, fmt.Sprintf("o.id = $%d", len(args)))
+	}
+	if supplierID != nil {
+		args = append(args, *supplierID)
+		filters = append(filters, fmt.Sprintf("pr.supplier_id = $%d", len(args)))
 	}
 	rows, err := db.Query(ctx, fmt.Sprintf(orderSelectSQL, strings.Join(filters, " AND ")), args...)
 	if err != nil {
@@ -770,7 +819,7 @@ func (s *Store) OpenDispute(ctx context.Context, orderID, userID uuid.UUID, reas
 		`, orderID, userID, reason); err != nil {
 			return nil, fmt.Errorf("insert dispute: %w", err)
 		}
-		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID)
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -949,6 +998,8 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.Product.RetailPrice,
 		&order.Product.CreatedAt,
 		&order.Product.ImageURL,
+		&order.Product.Rating,
+		&order.Product.ReviewCount,
 		&order.Product.Supplier.ID,
 		&order.Product.Supplier.Name,
 		&order.Product.Supplier.Region,

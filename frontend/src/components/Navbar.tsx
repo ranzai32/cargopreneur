@@ -14,7 +14,11 @@ const links = [
 
 export function Navbar() {
   const { user, ready, logout } = useAppState()
-  const navLinks = user?.role === 'admin' ? [...links, { href: '/admin/suppliers', label: 'Admin' }] : links
+  const navLinks = user?.role === 'admin'
+    ? [...links, { href: '/admin/suppliers', label: 'Admin' }]
+    : user?.role === 'supplier'
+      ? [...links, { href: '/supplier', label: 'My shop' }]
+      : links
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const menuId = useId()

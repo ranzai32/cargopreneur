@@ -12,7 +12,7 @@ export function AdminOrdersPage() {
   return (
     <AdminFrame
       title="Orders"
-      lede="Every pooled order. Cancel one while it is still open or confirmed. For a paid order, ship each participation and mark it delivered."
+      lede="Moderate pooled orders. Cancel one while it is still open or confirmed. The supplier ships and marks delivery."
     >
       <OrderManager />
     </AdminFrame>
@@ -20,12 +20,11 @@ export function AdminOrdersPage() {
 }
 
 function OrderManager() {
-  const { loadAdminOrders, cancelOrder, shipParticipation, deliverParticipation } = useAppState()
+  const { loadAdminOrders, cancelOrder } = useAppState()
   const [orders, setOrders] = useState<ApiOrder[]>([])
   const [loaded, setLoaded] = useState(false)
   const [message, setMessage] = useState('')
   const [cancelling, setCancelling] = useState('')
-  const [updating, setUpdating] = useState('')
   const [blocked, setBlocked] = useState('')
 
   useEffect(() => {
@@ -50,23 +49,6 @@ function OrderManager() {
       cancel = true
     }
   }, [loadAdminOrders])
-
-  async function handleShipment(id: string, action: 'ship' | 'deliver') {
-    setUpdating(`${action}:${id}`)
-    setMessage('')
-    try {
-      const updated = action === 'ship' ? await shipParticipation(id) : await deliverParticipation(id)
-      setOrders((current) => current.map((item) => (item.id === updated.id ? updated : item)))
-    } catch (error) {
-      if (isApiError(error) && (error.status === 401 || error.status === 403)) {
-        setBlocked(error.status === 403 ? 'You do not have access to this' : error.message)
-        return
-      }
-      setMessage(isApiError(error) ? error.message : 'Could not update the shipment')
-    } finally {
-      setUpdating('')
-    }
-  }
 
   async function handleCancel(id: string) {
     setCancelling(id)
@@ -122,8 +104,6 @@ function OrderManager() {
                 {(order.status === 'paid' || order.status === 'completed') && (
                   <ul className="mt-4 grid gap-3">
                     {(order.participants ?? []).map((participant) => {
-                      const shipKey = `ship:${participant.id}`
-                      const deliverKey = `deliver:${participant.id}`
                       return (
                         <li key={participant.id} className="rounded-md border border-ink-200 p-3">
                           <p className="text-sm text-ink-800">
@@ -132,23 +112,6 @@ function OrderManager() {
                             {` · ${participant.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}`}
                             {` · ${formatDeliveryStatus(participant.deliveryStatus)}`}
                           </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              disabled={updating !== '' || participant.paymentStatus !== 'paid' || participant.deliveryStatus !== 'pending'}
-                              onClick={() => void handleShipment(participant.id, 'ship')}
-                            >
-                              {updating === shipKey ? 'Shipping…' : 'Ship'}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={updating !== '' || participant.paymentStatus !== 'paid' || participant.deliveryStatus !== 'shipped'}
-                              onClick={() => void handleShipment(participant.id, 'deliver')}
-                            >
-                              {updating === deliverKey ? 'Delivering…' : 'Deliver'}
-                            </Button>
-                          </div>
                         </li>
                       )
                     })}

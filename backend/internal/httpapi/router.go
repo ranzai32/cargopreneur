@@ -25,6 +25,7 @@ type RouterConfig struct {
 	Orders       OrderStore
 	Notifier     domain.Notifier
 	UploadDir    string
+	Supplier     SupplierAPI
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -42,7 +43,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	router.Use(logRequests)
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{cfg.CORSOrigin},
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -74,6 +75,27 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if notifier == nil {
 		notifier = domain.NopNotifier{}
 	}
+
+	if cfg.Supplier != nil {
+		supplier := SupplierHandler{api: cfg.Supplier, notifier: notifier, uploadDir: cfg.UploadDir}
+		router.Get("/products/{id}/reviews", supplier.ProductReviews)
+		router.Get("/suppliers/{id}/reviews", supplier.SupplierReviews)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/products/{id}/reviews", supplier.WriteProductReview)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/suppliers/{id}/reviews", supplier.WriteSupplierReview)
+		router.Route("/supplier", func(r chi.Router) {
+			r.Use(requireAuth(cfg.Users, cfg.Tokens))
+			r.Use(RequireRole(domain.RoleSupplier))
+			r.Get("/products", supplier.ListProducts)
+			r.Post("/products", supplier.CreateProduct)
+			r.Put("/products/{id}", supplier.UpdateProduct)
+			r.Delete("/products/{id}", supplier.DeleteProduct)
+			r.Post("/uploads", supplier.Upload)
+			r.Get("/orders", supplier.ListOrders)
+			r.Post("/participations/{id}/ship", supplier.Ship)
+			r.Post("/participations/{id}/deliver", supplier.Deliver)
+		})
+	}
+
 	if cfg.Orders != nil {
 		orders := OrderHandler{orders: cfg.Orders, users: cfg.Users, tokens: cfg.Tokens, notifier: notifier}
 		router.Get("/orders", orders.List)

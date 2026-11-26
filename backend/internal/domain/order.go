@@ -38,6 +38,7 @@ var (
 	ErrDisputeNotAllowed    = errors.New("dispute not allowed")
 	ErrDisputeOpen          = errors.New("dispute already open")
 	ErrDisputeClosed        = errors.New("dispute already resolved")
+	ErrProductInUse         = errors.New("product in use")
 )
 
 type Order struct {

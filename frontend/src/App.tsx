@@ -14,6 +14,8 @@ import { OrderPage } from './pages/OrderPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { ProductPage } from './pages/ProductPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { SupplierPage } from './pages/SupplierPage'
+import { SupplierOrdersPage, SupplierProductsPage } from './pages/supplier/ShopPage'
 import { StubPage } from './pages/StubPage'
 
 function ScrollToHash() {
@@ -43,6 +45,9 @@ export function App() {
           <Route path="/account" element={<AccountPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="/catalog/:productId" element={<ProductPage />} />
+          <Route path="/suppliers/:supplierId" element={<SupplierPage />} />
+          <Route path="/supplier" element={<SupplierProductsPage />} />
+          <Route path="/supplier/orders" element={<SupplierOrdersPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/new" element={<CreateOrderPage />} />
           <Route path="/orders/:orderId" element={<OrderPage />} />

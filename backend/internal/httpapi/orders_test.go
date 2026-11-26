@@ -462,7 +462,7 @@ func assertOrderShape(t *testing.T, order map[string]any) {
 	if !ok {
 		t.Fatalf("product = %#v", order["product"])
 	}
-	productKeys := []string{"category", "createdAt", "description", "id", "imageUrl", "name", "priceTiers", "retailPrice", "supplier", "tags", "unit"}
+	productKeys := []string{"category", "createdAt", "description", "id", "imageUrl", "name", "priceTiers", "rating", "retailPrice", "reviewCount", "supplier", "tags", "unit"}
 	if !sameStrings(mapKeys(product), productKeys) {
 		t.Fatalf("product keys = %#v", mapKeys(product))
 	}

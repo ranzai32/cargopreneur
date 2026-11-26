@@ -7,13 +7,16 @@ import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { isApiError, useAppState } from '../lib/app-state'
 import { formatMoney, formatQuantity } from '../lib/format'
+import { ReviewForm, ReviewList, formatRating } from '../components/Reviews'
+import { api } from '../lib/api'
 import { mediaUrl } from '../lib/media'
-import type { ApiProduct } from '../types/catalog'
+import type { ApiProduct, ApiReview } from '../types/catalog'
 
 export function ProductPage() {
   const { productId = '' } = useParams()
-  const { loadProduct, loadOrders } = useAppState()
+  const { user, loadProduct, loadOrders } = useAppState()
   const [product, setProduct] = useState<ApiProduct | null>(null)
+  const [reviews, setReviews] = useState<ApiReview[]>([])
   const [orderCount, setOrderCount] = useState(0)
   const [error, setError] = useState('')
 
@@ -28,6 +31,11 @@ export function ProductPage() {
       .catch((reason) => {
         if (!cancel) setError(isApiError(reason) ? reason.message : 'Product not found')
       })
+    api.productReviews(productId).then((items) => {
+      if (!cancel) setReviews(items)
+    }).catch(() => {
+      if (!cancel) setReviews([])
+    })
     loadOrders('open')
       .then((orders) => {
         if (!cancel) setOrderCount(orders.filter((order) => order.product.id === productId).length)
@@ -57,9 +65,11 @@ export function ProductPage() {
               <h1 className="mt-3 font-serif text-4xl leading-tight text-ink-950">{product.name}</h1>
               <p className="mt-3 text-ink-700">{product.description}</p>
               <p className="mt-4 text-sm text-ink-700">
-                {product.supplier.name} · {product.supplier.region}
+                <Link to={`/suppliers/${product.supplier.id}`} className="font-semibold text-accent-800">{product.supplier.name}</Link>
+                {' · '}{product.supplier.region}
                 {product.supplier.isVerified ? ' · Reviewed supplier' : ''}
               </p>
+              <p className="mt-2 text-sm text-ink-700">{formatRating(product.rating, product.reviewCount)}</p>
               <p className="mt-6 text-ink-800">
                 Retail price {formatMoney(product.retailPrice)} per {product.unit}. Wholesale applies only if a pooled order reaches the minimum.
               </p>
@@ -86,6 +96,19 @@ export function ProductPage() {
               <p className="mt-3 text-sm text-ink-700">Retail {formatMoney(product.retailPrice)} / {product.unit}</p>
             </Card>
           </div>
+        )}
+        {product && (
+          <Card className="mt-8 p-5 sm:p-6">
+            <h2 className="font-serif text-2xl text-ink-950">Reviews</h2>
+            <ReviewList reviews={reviews} />
+            {user && user.supplierId !== product.supplier.id && (
+              <ReviewForm onSubmit={async (rating, body) => {
+                await api.writeProductReview(product.id, { rating, body })
+                setReviews(await api.productReviews(product.id))
+                setProduct(await loadProduct(product.id))
+              }} />
+            )}
+          </Card>
         )}
       </Container>
     </PageLayout>

@@ -1,4 +1,4 @@
-import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { AdminDispute, ApiOrder, ApiProduct, ApiReview, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 
 export const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
@@ -41,7 +41,21 @@ export const api = {
   pay: (id: string, shippingAddress: string) =>
     request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body: { shippingAddress } }),
   addresses: (q: string) => request<{ items: string[] }>(`/addresses?q=${encodeURIComponent(q)}`),
-  uploadPhoto: (file: File) => uploadFile(file),
+  uploadPhoto: (file: File) => uploadFile('/admin/uploads', file),
+  supplierUpload: (file: File) => uploadFile('/supplier/uploads', file),
+  productReviews: (id: string) => request<ApiReview[]>(`/products/${id}/reviews`),
+  supplierReviews: (id: string) => request<ApiReview[]>(`/suppliers/${id}/reviews`),
+  writeProductReview: (id: string, body: { rating: number; body: string }) =>
+    request<void>(`/products/${id}/reviews`, { method: 'POST', body }),
+  writeSupplierReview: (id: string, body: { rating: number; body: string }) =>
+    request<void>(`/suppliers/${id}/reviews`, { method: 'POST', body }),
+  supplierProducts: () => request<ApiProduct[]>('/supplier/products'),
+  createSupplierProduct: (body: SupplierProductBody) => request<ApiProduct>('/supplier/products', { method: 'POST', body }),
+  updateSupplierProduct: (id: string, body: SupplierProductBody) => request<ApiProduct>(`/supplier/products/${id}`, { method: 'PUT', body }),
+  deleteSupplierProduct: (id: string) => request<void>(`/supplier/products/${id}`, { method: 'DELETE' }),
+  supplierOrders: () => request<ApiOrder[]>('/supplier/orders'),
+  supplierShip: (id: string) => request<ApiOrder>(`/supplier/participations/${id}/ship`, { method: 'POST' }),
+  supplierDeliver: (id: string) => request<ApiOrder>(`/supplier/participations/${id}/deliver`, { method: 'POST' }),
   adminSuppliers: () => request<ApiSupplier[]>('/admin/suppliers'),
   createSupplier: (body: { name: string; description: string; region: string }) =>
     request<ApiSupplier>('/admin/suppliers', { method: 'POST', body }),
@@ -68,10 +82,22 @@ export const api = {
   deliverParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/deliver`, { method: 'POST' }),
 }
 
-async function uploadFile(file: File) {
+type SupplierProductBody = {
+  supplierId: string
+  name: string
+  description: string
+  category: string
+  tags: string[]
+  unit: string
+  retailPrice: number
+  imageUrl?: string
+  priceTiers: Array<{ minQty: number; unitPrice: number }>
+}
+
+async function uploadFile(path: string, file: File) {
   const body = new FormData()
   body.append('file', file)
-  const response = await fetch(`${apiBase}/admin/uploads`, {
+  const response = await fetch(`${apiBase}${path}`, {
     method: 'POST',
     credentials: 'include',
     body,
@@ -105,6 +131,7 @@ function queryString(filters: ProductFilters) {
   const params = new URLSearchParams()
   if (filters.q) params.set('q', filters.q)
   if (filters.category) params.set('category', filters.category)
+  if (filters.supplierId) params.set('supplierId', filters.supplierId)
   if (filters.sort) params.set('sort', filters.sort)
   if (filters.page) params.set('page', String(filters.page))
   if (filters.pageSize) params.set('pageSize', String(filters.pageSize))

@@ -7,7 +7,7 @@ import (
 )
 
 func TestProductSortIsWhitelisted(t *testing.T) {
-	for _, sort := range []string{domain.SortNewest, domain.SortName, domain.SortPriceAsc, domain.SortPriceDesc} {
+	for _, sort := range []string{domain.SortNewest, domain.SortName, domain.SortPriceAsc, domain.SortPriceDesc, domain.SortRating} {
 		if _, ok := productOrderSQL[sort]; !ok {
 			t.Fatalf("missing sort %s", sort)
 		}

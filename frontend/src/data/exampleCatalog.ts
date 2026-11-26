@@ -78,6 +78,8 @@ function product(
     unit,
     retailPrice,
     imageUrl: null,
+    rating: 4,
+    reviewCount: 2,
     supplier,
     priceTiers: tiers.map(([minQty, unitPrice]) => ({ minQty, unitPrice })),
     createdAt,

@@ -19,6 +19,7 @@ var productOrderSQL = map[string]string{
 	domain.SortName:      "p.name ASC, p.id ASC",
 	domain.SortPriceAsc:  "(SELECT MIN(unit_price) FROM price_tiers pt WHERE pt.product_id = p.id) ASC NULLS LAST, p.id ASC",
 	domain.SortPriceDesc: "(SELECT MIN(unit_price) FROM price_tiers pt WHERE pt.product_id = p.id) DESC NULLS LAST, p.id ASC",
+	domain.SortRating:    "COALESCE((SELECT AVG(rating) FROM reviews rv WHERE rv.product_id = p.id), 0) DESC, COALESCE((SELECT COUNT(*) FROM reviews rv WHERE rv.product_id = p.id), 0) DESC, p.id ASC",
 }
 
 func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) ([]domain.Product, int, error) {
@@ -37,6 +38,8 @@ func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) ([]
 	listArgs := append(append([]any{}, args...), query.PageSize, (query.Page-1)*query.PageSize)
 	listSQL := fmt.Sprintf(`
 		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at, p.image_url,
+		       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.product_id = p.id), 0),
+		       COALESCE((SELECT COUNT(*)::int FROM reviews rv WHERE rv.product_id = p.id), 0),
 		       s.id, s.name, s.region, s.is_verified
 		FROM products p
 		JOIN suppliers s ON s.id = p.supplier_id
@@ -80,6 +83,8 @@ func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) ([]
 func (s *Store) FindProduct(ctx context.Context, id uuid.UUID, includeUnverified bool) (domain.Product, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT p.id, p.name, p.description, p.category, p.tags, p.unit, p.retail_price::float8, p.created_at, p.image_url,
+		       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.product_id = p.id), 0),
+		       COALESCE((SELECT COUNT(*)::int FROM reviews rv WHERE rv.product_id = p.id), 0),
 		       s.id, s.name, s.region, s.is_verified
 		FROM products p
 		JOIN suppliers s ON s.id = p.supplier_id
@@ -104,7 +109,9 @@ func (s *Store) FindProduct(ctx context.Context, id uuid.UUID, includeUnverified
 
 func (s *Store) ListSuppliers(ctx context.Context, includeUnverified bool) ([]domain.Supplier, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.id, s.name, s.description, s.region, s.is_verified, COUNT(p.id)
+		SELECT s.id, s.name, s.description, s.region, s.is_verified, COUNT(p.id),
+		       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.supplier_id = s.id), 0),
+		       COALESCE((SELECT COUNT(*)::int FROM reviews rv WHERE rv.supplier_id = s.id), 0)
 		FROM suppliers s
 		LEFT JOIN products p ON p.supplier_id = s.id
 		WHERE ($1 OR s.is_verified)
@@ -126,6 +133,8 @@ func (s *Store) ListSuppliers(ctx context.Context, includeUnverified bool) ([]do
 			&supplier.Region,
 			&supplier.IsVerified,
 			&supplier.ProductCount,
+			&supplier.Rating,
+			&supplier.ReviewCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan supplier: %w", err)
 		}
@@ -141,7 +150,9 @@ func (s *Store) FindSupplier(ctx context.Context, id uuid.UUID, includeUnverifie
 	var supplier domain.Supplier
 	err := s.pool.QueryRow(ctx, `
 		SELECT s.id, s.name, s.description, s.region, s.is_verified,
-		       (SELECT COUNT(*) FROM products p WHERE p.supplier_id = s.id)
+		       (SELECT COUNT(*) FROM products p WHERE p.supplier_id = s.id),
+		       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.supplier_id = s.id), 0),
+		       COALESCE((SELECT COUNT(*)::int FROM reviews rv WHERE rv.supplier_id = s.id), 0)
 		FROM suppliers s
 		WHERE s.id = $1 AND ($2 OR s.is_verified)
 	`, id, includeUnverified).Scan(
@@ -151,6 +162,8 @@ func (s *Store) FindSupplier(ctx context.Context, id uuid.UUID, includeUnverifie
 		&supplier.Region,
 		&supplier.IsVerified,
 		&supplier.ProductCount,
+		&supplier.Rating,
+		&supplier.ReviewCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Supplier{}, domain.ErrNotFound
@@ -382,6 +395,8 @@ func scanProduct(row rowScanner) (domain.Product, error) {
 		&product.RetailPrice,
 		&product.CreatedAt,
 		&product.ImageURL,
+		&product.Rating,
+		&product.ReviewCount,
 		&product.Supplier.ID,
 		&product.Supplier.Name,
 		&product.Supplier.Region,

@@ -10,11 +10,12 @@ import (
 const (
 	RoleBusiness = "business"
 	RoleAdmin    = "admin"
+	RoleSupplier = "supplier"
 )
 
 var (
-	ErrNotFound    = errors.New("not found")
-	ErrEmailTaken  = errors.New("email taken")
+	ErrNotFound   = errors.New("not found")
+	ErrEmailTaken = errors.New("email taken")
 )
 
 type User struct {
@@ -25,6 +26,7 @@ type User struct {
 	PasswordHash string
 	Region       string
 	Role         string
+	SupplierID   *uuid.UUID
 	CreatedAt    time.Time
 }
 
@@ -38,13 +40,14 @@ type NewUser struct {
 }
 
 type UserJSON struct {
-	ID           uuid.UUID `json:"id"`
-	BusinessName string    `json:"businessName"`
-	ContactName  string    `json:"contactName"`
-	Email        string    `json:"email"`
-	Region       string    `json:"region"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           uuid.UUID  `json:"id"`
+	BusinessName string     `json:"businessName"`
+	ContactName  string     `json:"contactName"`
+	Email        string     `json:"email"`
+	Region       string     `json:"region"`
+	Role         string     `json:"role"`
+	SupplierID   *uuid.UUID `json:"supplierId"`
+	CreatedAt    time.Time  `json:"createdAt"`
 }
 
 func (u User) JSON() UserJSON {
@@ -55,6 +58,7 @@ func (u User) JSON() UserJSON {
 		Email:        u.Email,
 		Region:       u.Region,
 		Role:         u.Role,
+		SupplierID:   u.SupplierID,
 		CreatedAt:    u.CreatedAt,
 	}
 }

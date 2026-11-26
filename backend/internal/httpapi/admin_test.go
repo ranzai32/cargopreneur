@@ -445,14 +445,14 @@ func adminRouter(catalog *memCatalog, orders *memOrders, users *fakeUsers, notif
 
 func assertSupplierShape(t *testing.T, supplier map[string]any) {
 	t.Helper()
-	if !sameStrings(mapKeys(supplier), []string{"description", "id", "isVerified", "name", "productCount", "region"}) {
+	if !sameStrings(mapKeys(supplier), []string{"description", "id", "isVerified", "name", "productCount", "rating", "region", "reviewCount"}) {
 		t.Fatalf("supplier keys = %#v", mapKeys(supplier))
 	}
 }
 
 func assertProductShape(t *testing.T, product map[string]any) {
 	t.Helper()
-	if !sameStrings(mapKeys(product), []string{"category", "createdAt", "description", "id", "imageUrl", "name", "priceTiers", "retailPrice", "supplier", "tags", "unit"}) {
+	if !sameStrings(mapKeys(product), []string{"category", "createdAt", "description", "id", "imageUrl", "name", "priceTiers", "rating", "retailPrice", "reviewCount", "supplier", "tags", "unit"}) {
 		t.Fatalf("product keys = %#v", mapKeys(product))
 	}
 	supplier, ok := product["supplier"].(map[string]any)

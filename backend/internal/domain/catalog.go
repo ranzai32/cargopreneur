@@ -16,6 +16,7 @@ const (
 	SortName      = "name"
 	SortPriceAsc  = "price_asc"
 	SortPriceDesc = "price_desc"
+	SortRating    = "rating"
 
 	DefaultPage     = 1
 	DefaultPageSize = 12
@@ -43,6 +44,8 @@ type Product struct {
 	Unit        string
 	RetailPrice float64
 	ImageURL    *string
+	Rating      float64
+	ReviewCount int
 	Supplier    SupplierBrief
 	PriceTiers  []PriceTier
 	CreatedAt   time.Time
@@ -55,6 +58,8 @@ type Supplier struct {
 	Region       string
 	IsVerified   bool
 	ProductCount int
+	Rating       float64
+	ReviewCount  int
 }
 
 type Category struct {
@@ -83,6 +88,8 @@ type ProductJSON struct {
 	Unit        string            `json:"unit"`
 	RetailPrice float64           `json:"retailPrice"`
 	ImageURL    *string           `json:"imageUrl"`
+	Rating      float64           `json:"rating"`
+	ReviewCount int               `json:"reviewCount"`
 	Supplier    SupplierBriefJSON `json:"supplier"`
 	PriceTiers  []PriceTierJSON   `json:"priceTiers"`
 	CreatedAt   time.Time         `json:"createdAt"`
@@ -95,6 +102,8 @@ type SupplierJSON struct {
 	Region       string    `json:"region"`
 	IsVerified   bool      `json:"isVerified"`
 	ProductCount int       `json:"productCount"`
+	Rating       float64   `json:"rating"`
+	ReviewCount  int       `json:"reviewCount"`
 }
 
 type ProductQuery struct {
@@ -141,6 +150,8 @@ func (p Product) JSON() ProductJSON {
 		Unit:        p.Unit,
 		RetailPrice: p.RetailPrice,
 		ImageURL:    p.ImageURL,
+		Rating:      p.Rating,
+		ReviewCount: p.ReviewCount,
 		Supplier: SupplierBriefJSON{
 			ID:         p.Supplier.ID,
 			Name:       p.Supplier.Name,
@@ -160,6 +171,8 @@ func (s Supplier) JSON() SupplierJSON {
 		Region:       s.Region,
 		IsVerified:   s.IsVerified,
 		ProductCount: s.ProductCount,
+		Rating:       s.Rating,
+		ReviewCount:  s.ReviewCount,
 	}
 }
 
@@ -181,10 +194,10 @@ func ParseProductQuery(values url.Values) (ProductQuery, map[string]string) {
 
 	if raw := strings.TrimSpace(values.Get("sort")); raw != "" {
 		switch raw {
-		case SortNewest, SortName, SortPriceAsc, SortPriceDesc:
+		case SortNewest, SortName, SortPriceAsc, SortPriceDesc, SortRating:
 			query.Sort = raw
 		default:
-			errs["sort"] = "Use newest, name, price_asc, or price_desc"
+			errs["sort"] = "Use newest, name, price_asc, price_desc, or rating"
 		}
 	}
 

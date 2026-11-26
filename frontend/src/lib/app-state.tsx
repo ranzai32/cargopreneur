@@ -312,6 +312,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         unit: input.unit.trim(),
         retailPrice: input.retailPrice,
         imageUrl: input.imageUrl ?? null,
+        rating: 0,
+        reviewCount: 0,
         supplier: {
           id: supplier.id,
           name: supplier.name,
@@ -473,6 +475,7 @@ function mockUser(email: string): ApiUser {
     email: email.toLowerCase(),
     region: 'Local example',
     role: 'business',
+    supplierId: null,
     createdAt: new Date().toISOString(),
   }
 }

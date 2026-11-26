@@ -183,12 +183,12 @@ func TestRequireRole(t *testing.T) {
 	users := newFakeUsers()
 	tokens := auth.NewTokens("test-secret-value", time.Hour)
 	router := NewRouter(RouterConfig{
-		Users:        users,
-		Pinger:       users,
-		Passwords:    auth.NewTestHasher(),
-		Tokens:       tokens,
-		CORSOrigin:   "http://localhost:5173",
-		Limiter:      NewRateLimiter(100, time.Minute),
+		Users:      users,
+		Pinger:     users,
+		Passwords:  auth.NewTestHasher(),
+		Tokens:     tokens,
+		CORSOrigin: "http://localhost:5173",
+		Limiter:    NewRateLimiter(100, time.Minute),
 	})
 	protected := requireAuth(users, tokens)(RequireRole(domain.RoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -234,9 +234,9 @@ func TestRequireRole(t *testing.T) {
 }
 
 type fakeUsers struct {
-	mu           sync.Mutex
-	byEmail      map[string]domain.User
-	byID         map[uuid.UUID]domain.User
+	mu      sync.Mutex
+	byEmail map[string]domain.User
+	byID    map[uuid.UUID]domain.User
 	pingErr error
 }
 

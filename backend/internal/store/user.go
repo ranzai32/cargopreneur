@@ -42,7 +42,7 @@ func (s *Store) CreateUser(ctx context.Context, input domain.NewUser) (domain.Us
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO users (business_name, contact_name, email, password_hash, region, role)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, business_name, contact_name, email, password_hash, region, role, created_at
+		RETURNING id, business_name, contact_name, email, password_hash, region, role, supplier_id, created_at
 	`, input.BusinessName, input.ContactName, input.Email, input.PasswordHash, input.Region, role)
 
 	user, err := scanUser(row)
@@ -58,7 +58,7 @@ func (s *Store) CreateUser(ctx context.Context, input domain.NewUser) (domain.Us
 
 func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, business_name, contact_name, email, password_hash, region, role, created_at
+		SELECT id, business_name, contact_name, email, password_hash, region, role, supplier_id, created_at
 		FROM users
 		WHERE email = $1
 	`, email)
@@ -74,7 +74,7 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User,
 
 func (s *Store) FindUserByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, business_name, contact_name, email, password_hash, region, role, created_at
+		SELECT id, business_name, contact_name, email, password_hash, region, role, supplier_id, created_at
 		FROM users
 		WHERE id = $1
 	`, id)
@@ -150,6 +150,7 @@ func scanUser(row pgx.Row) (domain.User, error) {
 		&user.PasswordHash,
 		&user.Region,
 		&user.Role,
+		&user.SupplierID,
 		&user.CreatedAt,
 	)
 	return user, err
