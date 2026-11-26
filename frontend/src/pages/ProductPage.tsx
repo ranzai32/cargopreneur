@@ -7,7 +7,7 @@ import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { isApiError, useAppState } from '../lib/app-state'
 import { formatMoney, formatQuantity } from '../lib/format'
-import { ReviewForm, ReviewList, formatRating } from '../components/Reviews'
+import { RatingLink, ReviewForm, ReviewList } from '../components/Reviews'
 import { api } from '../lib/api'
 import { mediaUrl } from '../lib/media'
 import type { ApiProduct, ApiReview } from '../types/catalog'
@@ -69,7 +69,9 @@ export function ProductPage() {
                 {' · '}{product.supplier.region}
                 {product.supplier.isVerified ? ' · Reviewed supplier' : ''}
               </p>
-              <p className="mt-2 text-sm text-ink-700">{formatRating(product.rating, product.reviewCount)}</p>
+              <p className="mt-2">
+                <RatingLink to={`/catalog/${product.id}/reviews`} rating={product.rating} count={product.reviewCount} />
+              </p>
               <p className="mt-6 text-ink-800">
                 Retail price {formatMoney(product.retailPrice)} per {product.unit}. Wholesale applies only if a pooled order reaches the minimum.
               </p>

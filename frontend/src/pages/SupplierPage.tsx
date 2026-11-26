@@ -4,9 +4,9 @@ import { Badge } from '../components/Badge'
 import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
-import { ReviewForm, ReviewList, formatRating } from '../components/Reviews'
+import { RatingLink, ReviewForm, ReviewList } from '../components/Reviews'
 import { api } from '../lib/api'
-import { useAppState } from '../lib/app-state'
+import { isApiError, useAppState } from '../lib/app-state'
 import { mediaUrl } from '../lib/media'
 import type { ApiProduct, ApiReview, ApiSupplier } from '../types/catalog'
 
@@ -20,19 +20,24 @@ export function SupplierPage() {
 
   useEffect(() => {
     let cancel = false
-    Promise.all([
-      fetch(`${apiBase()}/suppliers/${supplierId}`).then(readJson<ApiSupplier>),
-      api.supplierReviews(supplierId),
-      loadProducts({ supplierId, pageSize: 50, sort: 'rating' }),
-    ]).then(([found, reviewItems, catalog]) => {
-      if (cancel) return
-      setSupplier(found)
-      setReviews(reviewItems)
-      setProducts(catalog.items)
-      document.title = `${found.name} · CargoPrener`
-    }).catch(() => {
-      if (!cancel) setError('Supplier not found')
-    })
+    api.supplier(supplierId)
+      .then((found) => {
+        if (cancel) return
+        setSupplier(found)
+        document.title = `${found.name} · CargoPrener`
+        return Promise.all([
+          api.supplierReviews(supplierId).catch(() => [] as ApiReview[]),
+          loadProducts({ supplierId, pageSize: 50, sort: 'rating' }).catch(() => ({ items: [] as ApiProduct[] })),
+        ])
+      })
+      .then((extra) => {
+        if (cancel || !extra) return
+        setReviews(extra[0])
+        setProducts(extra[1].items)
+      })
+      .catch((reason) => {
+        if (!cancel) setError(isApiError(reason) ? reason.message : 'Supplier not found')
+      })
     return () => {
       cancel = true
     }
@@ -40,8 +45,7 @@ export function SupplierPage() {
 
   async function reloadReviews() {
     setReviews(await api.supplierReviews(supplierId))
-    const found = await fetch(`${apiBase()}/suppliers/${supplierId}`).then(readJson<ApiSupplier>)
-    setSupplier(found)
+    setSupplier(await api.supplier(supplierId))
   }
 
   return (
@@ -54,19 +58,24 @@ export function SupplierPage() {
             <div>
               <Badge tone="accent">{supplier.isVerified ? 'Reviewed supplier' : 'Under review'}</Badge>
               <h1 className="mt-3 font-serif text-4xl text-ink-950">{supplier.name}</h1>
-              <p className="mt-2 text-sm text-ink-700">{supplier.region} · {formatRating(supplier.rating, supplier.reviewCount)}</p>
+              <p className="mt-2 text-sm text-ink-700">{supplier.region}</p>
+              <p className="mt-2">
+                <RatingLink to={`/suppliers/${supplier.id}/reviews`} rating={supplier.rating} count={supplier.reviewCount} />
+              </p>
               {supplier.description && <p className="mt-4 max-w-2xl text-ink-800">{supplier.description}</p>}
               <h2 className="mt-8 font-serif text-2xl text-ink-950">Catalog</h2>
               <ul className="mt-4 grid gap-4 sm:grid-cols-2">
                 {products.map((product) => (
                   <li key={product.id}>
-                    <Link to={`/catalog/${product.id}`} className="block h-full">
-                      <Card className="h-full p-4">
+                    <Card className="h-full p-4">
+                      <Link to={`/catalog/${product.id}`} className="block">
                         {product.imageUrl && <img src={mediaUrl(product.imageUrl)} alt="" className="mb-3 aspect-[4/3] w-full rounded-md object-cover" />}
                         <h3 className="font-serif text-xl text-ink-950">{product.name}</h3>
-                        <p className="mt-1 text-sm text-ink-700">{formatRating(product.rating, product.reviewCount)}</p>
-                      </Card>
-                    </Link>
+                      </Link>
+                      <p className="mt-1">
+                        <RatingLink to={`/catalog/${product.id}/reviews`} rating={product.rating} count={product.reviewCount} />
+                      </p>
+                    </Card>
                   </li>
                 ))}
               </ul>
@@ -88,11 +97,3 @@ export function SupplierPage() {
   )
 }
 
-function apiBase() {
-  return import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
-}
-
-async function readJson<T>(response: Response) {
-  if (!response.ok) throw new Error('request failed')
-  return response.json() as Promise<T>
-}

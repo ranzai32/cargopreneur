@@ -13,6 +13,7 @@ import { LoginPage } from './pages/LoginPage'
 import { OrderPage } from './pages/OrderPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { ProductPage } from './pages/ProductPage'
+import { ProductReviewsPage, SupplierReviewsPage } from './pages/ReviewsPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SupplierPage } from './pages/SupplierPage'
 import { SupplierOrdersPage, SupplierProductsPage } from './pages/supplier/ShopPage'
@@ -44,7 +45,9 @@ export function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
+          <Route path="/catalog/:productId/reviews" element={<ProductReviewsPage />} />
           <Route path="/catalog/:productId" element={<ProductPage />} />
+          <Route path="/suppliers/:supplierId/reviews" element={<SupplierReviewsPage />} />
           <Route path="/suppliers/:supplierId" element={<SupplierPage />} />
           <Route path="/supplier" element={<SupplierProductsPage />} />
           <Route path="/supplier/orders" element={<SupplierOrdersPage />} />

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
-import { formatRating } from '../components/Reviews'
+import { RatingLink } from '../components/Reviews'
 import { formatMoney } from '../lib/format'
 import { mediaUrl } from '../lib/media'
 import { openingTier } from '../lib/catalog'
@@ -87,13 +87,15 @@ export function CatalogPage() {
                   <button
                     type="button"
                     onClick={() => update({ category: tile.name, q: '' })}
-                    className="relative flex h-32 w-full flex-col overflow-hidden rounded-2xl bg-[#f3f0ea] text-left sm:h-40"
+                    className="flex h-36 w-full flex-col rounded-2xl bg-[#eceae6] p-2.5 text-left sm:h-44"
                   >
-                    <span className="relative z-10 px-2.5 pt-2.5 text-[13px] font-semibold leading-tight text-ink-950 sm:px-3 sm:pt-3 sm:text-sm">{tile.name}</span>
+                    <span className="text-[13px] font-semibold leading-tight text-ink-950 sm:text-sm">{tile.name}</span>
                     {tile.imageUrl ? (
-                      <img src={mediaUrl(tile.imageUrl)} alt="" className="pointer-events-none absolute bottom-0 left-1/2 h-28 w-[130%] max-w-none -translate-x-1/2 object-cover object-[center_42%] sm:h-32" />
+                      <span className="mt-1 flex min-h-0 flex-1 items-end justify-center">
+                        <img src={mediaUrl(tile.imageUrl)} alt="" className="max-h-full max-w-full object-contain" />
+                      </span>
                     ) : (
-                      <span className="mt-auto px-3 pb-3 text-xs font-semibold text-ink-500">{tile.count}</span>
+                      <span className="mt-auto text-xs font-semibold text-ink-500">{tile.count}</span>
                     )}
                   </button>
                 </li>
@@ -136,7 +138,9 @@ export function CatalogPage() {
                         )}
                         <h2 className="font-serif text-2xl leading-tight text-ink-950">{product.name}</h2>
                       </Link>
-                      <p className="mt-2 text-sm text-ink-700">{formatRating(product.rating, product.reviewCount)}</p>
+                      <p className="mt-2">
+                        <RatingLink to={`/catalog/${product.id}/reviews`} rating={product.rating} count={product.reviewCount} />
+                      </p>
                       <p className="mt-2 text-sm text-ink-700">
                         <Link to={`/suppliers/${product.supplier.id}`} className="font-semibold text-accent-800">{product.supplier.name}</Link>
                         {' · '}{product.supplier.region}

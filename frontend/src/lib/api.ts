@@ -31,6 +31,7 @@ export const api = {
   updateMe: (body: ProfileInput) => request<ApiUser>('/auth/me', { method: 'POST', body }),
   products: (filters: ProductFilters) => request<ProductPage>(`/products${queryString(filters)}`),
   product: (id: string) => request<ApiProduct>(`/products/${id}`),
+  supplier: (id: string) => request<ApiSupplier>(`/suppliers/${id}`),
   categories: () => request<Array<{ name: string; count: number }>>('/categories'),
   orders: (status?: string) => request<ApiOrder[]>(`/orders${status ? `?status=${status}` : ''}`),
   order: (id: string) => request<ApiOrder>(`/orders/${id}`),
