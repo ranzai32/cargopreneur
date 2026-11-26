@@ -81,19 +81,19 @@ export function CatalogPage() {
         {products && browsing && (
           <section className="mt-6">
             <h1 className="font-serif text-3xl text-ink-950">Categories</h1>
-            <ul className="mt-4 grid grid-cols-3 gap-3">
+            <ul className="mt-4 grid grid-cols-3 gap-2.5 sm:gap-3">
               {tiles.map((tile) => (
                 <li key={tile.name}>
                   <button
                     type="button"
                     onClick={() => update({ category: tile.name, q: '' })}
-                    className="flex h-36 w-full flex-col justify-between overflow-hidden rounded-2xl bg-ink-100 p-3 text-left sm:h-44"
+                    className="relative flex h-32 w-full flex-col overflow-hidden rounded-2xl bg-[#f3f0ea] text-left sm:h-40"
                   >
-                    <span className="text-sm font-semibold leading-tight text-ink-950">{tile.name}</span>
+                    <span className="relative z-10 px-2.5 pt-2.5 text-[13px] font-semibold leading-tight text-ink-950 sm:px-3 sm:pt-3 sm:text-sm">{tile.name}</span>
                     {tile.imageUrl ? (
-                      <img src={mediaUrl(tile.imageUrl)} alt="" className="ml-auto h-16 w-16 object-contain sm:h-24 sm:w-24" />
+                      <img src={mediaUrl(tile.imageUrl)} alt="" className="pointer-events-none absolute bottom-0 left-1/2 h-28 w-[130%] max-w-none -translate-x-1/2 object-cover object-[center_42%] sm:h-32" />
                     ) : (
-                      <span className="ml-auto text-xs font-semibold text-ink-500">{tile.count}</span>
+                      <span className="mt-auto px-3 pb-3 text-xs font-semibold text-ink-500">{tile.count}</span>
                     )}
                   </button>
                 </li>
