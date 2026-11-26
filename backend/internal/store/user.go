@@ -93,7 +93,7 @@ func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, input domain.Profi
 		UPDATE users
 		SET business_name = $2, contact_name = $3, email = $4, region = $5
 		WHERE id = $1
-		RETURNING id, business_name, contact_name, email, password_hash, region, role, created_at
+		RETURNING id, business_name, contact_name, email, password_hash, region, role, supplier_id, created_at
 	`, id, input.BusinessName, input.ContactName, input.Email, input.Region)
 	user, err := scanUser(row)
 	if errors.Is(err, pgx.ErrNoRows) {
