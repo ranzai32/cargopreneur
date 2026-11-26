@@ -107,7 +107,17 @@ function order(
     participantCount,
     yourQuantity: null,
     yourPaymentStatus: null,
+    yourDeliveryStatus: null,
     allPaid: false,
+    participants: [
+      {
+        id: `${id.slice(0, -2)}b1`,
+        quantity: collectedQty,
+        shippingAddress: '',
+        paymentStatus: 'unpaid',
+        deliveryStatus: 'pending',
+      },
+    ],
     product: item,
   }
 }

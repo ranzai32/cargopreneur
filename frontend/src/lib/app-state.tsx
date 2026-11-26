@@ -55,6 +55,8 @@ type AppState = {
   createProduct: (input: ProductInput) => Promise<ApiProduct>
   loadAdminOrders: () => Promise<ApiOrder[]>
   cancelOrder: (id: string) => Promise<ApiOrder>
+  shipParticipation: (id: string) => Promise<ApiOrder>
+  deliverParticipation: (id: string) => Promise<ApiOrder>
 }
 
 const AppStateContext = createContext<AppState | null>(null)
@@ -170,7 +172,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         participantCount: 1,
         yourQuantity: input.quantity,
         yourPaymentStatus: 'unpaid',
+        yourDeliveryStatus: 'pending',
         allPaid: false,
+        participants: [
+          {
+            id: crypto.randomUUID(),
+            quantity: input.quantity,
+            shippingAddress: '',
+            paymentStatus: 'unpaid',
+            deliveryStatus: 'pending',
+          },
+        ],
         product,
       }
       setOrders((current) => [created, ...current])
@@ -192,7 +204,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         participantCount: current.participantCount + 1,
         yourQuantity: quantity,
         yourPaymentStatus: 'unpaid',
+        yourDeliveryStatus: 'pending',
         allPaid: false,
+        participants: [
+          ...(current.participants ?? []),
+          {
+            id: crypto.randomUUID(),
+            quantity,
+            shippingAddress: '',
+            paymentStatus: 'unpaid',
+            deliveryStatus: 'pending',
+          },
+        ],
         status: collectedQty >= current.moq ? 'confirmed' : 'open',
       }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
@@ -211,10 +234,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (!current.yourQuantity) throw new ApiError(403, 'You are not part of this order')
       if (current.yourPaymentStatus === 'paid') throw new ApiError(409, 'This order is already paid')
       const allPaid = current.participantCount <= 1
+      let marked = false
+      const participants = (current.participants ?? []).map((part) => {
+        if (marked || part.paymentStatus === 'paid' || part.quantity !== current.yourQuantity) return part
+        marked = true
+        return { ...part, paymentStatus: 'paid' as const, shippingAddress: address, deliveryStatus: 'pending' as const }
+      })
       const updated: ApiOrder = {
         ...current,
         yourPaymentStatus: 'paid',
+        yourDeliveryStatus: 'pending',
         allPaid,
+        participants,
         status: allPaid ? 'paid' : 'confirmed',
       }
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
@@ -292,6 +323,20 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
       return updated
     },
+    async shipParticipation(id) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.shipParticipation(id)
+      const updated = advanceExampleDelivery(orders, id, 'shipped')
+      setOrders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      return updated
+    },
+    async deliverParticipation(id) {
+      if (user?.role !== 'admin') throw new ApiError(403, 'You do not have access to this')
+      if (!exampleMode) return api.deliverParticipation(id)
+      const updated = advanceExampleDelivery(orders, id, 'delivered')
+      setOrders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      return updated
+    },
   }), [orders, ready, suppliers, user])
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
@@ -309,6 +354,27 @@ export function isApiError(error: unknown): error is ApiError {
 
 export function fieldErrorsOf(error: unknown): FieldErrors {
   return isApiError(error) && error.fieldErrors ? error.fieldErrors : {}
+}
+
+function advanceExampleDelivery(orders: ApiOrder[], participationId: string, next: 'shipped' | 'delivered'): ApiOrder {
+  const order = orders.find((item) => item.participants?.some((part) => part.id === participationId))
+  if (!order) throw new ApiError(404, 'Participation not found')
+  const part = order.participants.find((item) => item.id === participationId)
+  if (!part) throw new ApiError(404, 'Participation not found')
+  const payable = part.paymentStatus === 'paid' && (order.status === 'paid' || order.status === 'completed')
+  const allowed = next === 'shipped' ? part.deliveryStatus === 'pending' : part.deliveryStatus === 'shipped'
+  if (!payable || !allowed) throw new ApiError(400, 'This shipment cannot be updated')
+  const participants = order.participants.map((item) => (
+    item.id === participationId ? { ...item, deliveryStatus: next } : item
+  ))
+  const completed = next === 'delivered' && participants.every((item) => item.deliveryStatus === 'delivered')
+  const yours = order.yourQuantity != null && part.quantity === order.yourQuantity && order.yourPaymentStatus === 'paid'
+  return {
+    ...order,
+    status: completed ? 'completed' : order.status,
+    participants,
+    yourDeliveryStatus: yours ? next : order.yourDeliveryStatus,
+  }
 }
 
 function mockUser(email: string): ApiUser {

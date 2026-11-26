@@ -9,7 +9,7 @@ import { AddressField } from '../components/AddressField'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
-import { daysUntil, formatDaysLeft, formatMoney, formatNumber, formatQuantity } from '../lib/format'
+import { daysUntil, formatDaysLeft, formatDeliveryStatus, formatMoney, formatNumber, formatQuantity } from '../lib/format'
 import { mediaUrl } from '../lib/media'
 import type { ApiOrder } from '../types/catalog'
 
@@ -144,7 +144,10 @@ export function OrderPage() {
                   </div>
                 )}
                 {order.yourPaymentStatus === 'paid' && (
-                  <p role="status" className="mt-3 text-ink-800">Your simulated payment was recorded.</p>
+                  <div className="mt-3">
+                    <p role="status" className="text-ink-800">Your simulated payment was recorded.</p>
+                    <p className="mt-2 text-ink-800">Delivery status: {formatDeliveryStatus(order.yourDeliveryStatus)}</p>
+                  </div>
                 )}
               </div>
             ) : open ? (
@@ -168,11 +171,13 @@ export function OrderPage() {
               </div>
             ) : (
               <p className="mt-3 text-ink-700">
-                {order.status === 'paid'
-                  ? 'This order is paid.'
-                  : order.status === 'confirmed'
-                    ? 'This order reached the minimum and is confirmed at the wholesale price.'
-                    : 'This order is closed. Nobody has to buy.'}
+                {order.status === 'completed'
+                  ? 'This order is complete.'
+                  : order.status === 'paid'
+                    ? 'This order is paid.'
+                    : order.status === 'confirmed'
+                      ? 'This order reached the minimum and is confirmed at the wholesale price.'
+                      : 'This order is closed. Nobody has to buy.'}
               </p>
             )}
             {message && <p role="status" className="mt-3 text-sm text-ink-800">{message}</p>}

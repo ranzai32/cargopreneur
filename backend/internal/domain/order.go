@@ -20,45 +20,70 @@ const (
 
 	PaymentUnpaid = "unpaid"
 	PaymentPaid   = "paid"
+
+	DeliveryPending   = "pending"
+	DeliveryShipped   = "shipped"
+	DeliveryDelivered = "delivered"
 )
 
 var (
-	ErrProductUnavailable  = errors.New("product unavailable")
-	ErrOrderClosed         = errors.New("order closed")
-	ErrAlreadyJoined       = errors.New("already joined")
-	ErrNotReadyForPayment  = errors.New("order not ready for payment")
-	ErrNotParticipant      = errors.New("not a participant")
-	ErrAlreadyPaid         = errors.New("already paid")
-	ErrOrderNotCancellable = errors.New("order not cancellable")
+	ErrProductUnavailable   = errors.New("product unavailable")
+	ErrOrderClosed          = errors.New("order closed")
+	ErrAlreadyJoined        = errors.New("already joined")
+	ErrNotReadyForPayment   = errors.New("order not ready for payment")
+	ErrNotParticipant       = errors.New("not a participant")
+	ErrAlreadyPaid          = errors.New("already paid")
+	ErrOrderNotCancellable  = errors.New("order not cancellable")
+	ErrShipmentNotUpdatable = errors.New("shipment cannot be updated")
 )
 
 type Order struct {
-	ID                uuid.UUID
-	ProductID         uuid.UUID
-	Status            string
-	MOQ               int
-	Deadline          time.Time
-	CreatedAt         time.Time
-	CollectedQty      int
-	ParticipantCount  int
-	YourQuantity      *int
-	YourPaymentStatus *string
-	AllPaid           bool
-	Product           Product
+	ID                 uuid.UUID
+	ProductID          uuid.UUID
+	Status             string
+	MOQ                int
+	Deadline           time.Time
+	CreatedAt          time.Time
+	CollectedQty       int
+	ParticipantCount   int
+	YourQuantity       *int
+	YourPaymentStatus  *string
+	YourDeliveryStatus *string
+	AllPaid            bool
+	Participants       []Participation
+	Product            Product
+}
+
+type Participation struct {
+	ID              uuid.UUID
+	Quantity        int
+	ShippingAddress string
+	PaymentStatus   string
+	DeliveryStatus  string
+}
+
+type ParticipationJSON struct {
+	ID              uuid.UUID `json:"id"`
+	Quantity        int       `json:"quantity"`
+	ShippingAddress string    `json:"shippingAddress"`
+	PaymentStatus   string    `json:"paymentStatus"`
+	DeliveryStatus  string    `json:"deliveryStatus"`
 }
 
 type OrderJSON struct {
-	ID                uuid.UUID   `json:"id"`
-	Status            string      `json:"status"`
-	MOQ               int         `json:"moq"`
-	Deadline          time.Time   `json:"deadline"`
-	CreatedAt         time.Time   `json:"createdAt"`
-	CollectedQty      int         `json:"collectedQty"`
-	ParticipantCount  int         `json:"participantCount"`
-	YourQuantity      *int        `json:"yourQuantity"`
-	YourPaymentStatus *string     `json:"yourPaymentStatus"`
-	AllPaid           bool        `json:"allPaid"`
-	Product           ProductJSON `json:"product"`
+	ID                 uuid.UUID           `json:"id"`
+	Status             string              `json:"status"`
+	MOQ                int                 `json:"moq"`
+	Deadline           time.Time           `json:"deadline"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	CollectedQty       int                 `json:"collectedQty"`
+	ParticipantCount   int                 `json:"participantCount"`
+	YourQuantity       *int                `json:"yourQuantity"`
+	YourPaymentStatus  *string             `json:"yourPaymentStatus"`
+	YourDeliveryStatus *string             `json:"yourDeliveryStatus"`
+	AllPaid            bool                `json:"allPaid"`
+	Participants       []ParticipationJSON `json:"participants"`
+	Product            ProductJSON         `json:"product"`
 }
 
 type NewOrder struct {
@@ -86,18 +111,54 @@ type PayOrderBody struct {
 }
 
 func (o Order) JSON() OrderJSON {
+	participants := make([]ParticipationJSON, 0, len(o.Participants))
+	for _, part := range o.Participants {
+		participants = append(participants, part.JSON())
+	}
 	return OrderJSON{
-		ID:                o.ID,
-		Status:            o.Status,
-		MOQ:               o.MOQ,
-		Deadline:          o.Deadline.UTC(),
-		CreatedAt:         o.CreatedAt.UTC(),
-		CollectedQty:      o.CollectedQty,
-		ParticipantCount:  o.ParticipantCount,
-		YourQuantity:      o.YourQuantity,
-		YourPaymentStatus: o.YourPaymentStatus,
-		AllPaid:           o.AllPaid,
-		Product:           o.Product.JSON(),
+		ID:                 o.ID,
+		Status:             o.Status,
+		MOQ:                o.MOQ,
+		Deadline:           o.Deadline.UTC(),
+		CreatedAt:          o.CreatedAt.UTC(),
+		CollectedQty:       o.CollectedQty,
+		ParticipantCount:   o.ParticipantCount,
+		YourQuantity:       o.YourQuantity,
+		YourPaymentStatus:  o.YourPaymentStatus,
+		YourDeliveryStatus: o.YourDeliveryStatus,
+		AllPaid:            o.AllPaid,
+		Participants:       participants,
+		Product:            o.Product.JSON(),
+	}
+}
+
+func (p Participation) JSON() ParticipationJSON {
+	return ParticipationJSON{
+		ID:              p.ID,
+		Quantity:        p.Quantity,
+		ShippingAddress: p.ShippingAddress,
+		PaymentStatus:   p.PaymentStatus,
+		DeliveryStatus:  p.DeliveryStatus,
+	}
+}
+
+func ShipmentUpdateAllowed(orderStatus, paymentStatus, currentDelivery, next string) bool {
+	if paymentStatus != PaymentPaid {
+		return false
+	}
+	if orderStatus != OrderPaid && orderStatus != OrderCompleted {
+		return false
+	}
+	if currentDelivery == "" {
+		currentDelivery = DeliveryPending
+	}
+	switch next {
+	case DeliveryShipped:
+		return currentDelivery == DeliveryPending
+	case DeliveryDelivered:
+		return currentDelivery == DeliveryShipped
+	default:
+		return false
 	}
 }
 

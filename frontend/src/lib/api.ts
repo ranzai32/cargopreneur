@@ -56,6 +56,8 @@ export const api = {
   }) => request<ApiProduct>('/admin/products', { method: 'POST', body }),
   adminOrders: () => request<ApiOrder[]>('/admin/orders'),
   cancelOrder: (id: string) => request<ApiOrder>(`/admin/orders/${id}/cancel`, { method: 'POST' }),
+  shipParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/ship`, { method: 'POST' }),
+  deliverParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/deliver`, { method: 'POST' }),
 }
 
 async function uploadFile(file: File) {
