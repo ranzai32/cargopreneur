@@ -14,8 +14,13 @@ export function formatNumber(value: number): string {
 }
 
 export function formatQuantity(count: number, unit: string): string {
-  const noun = count === 1 ? unit : `${unit}s`
-  return `${formatNumber(count)} ${noun}`
+  return `${formatNumber(count)} ${count === 1 ? unit : pluralUnit(unit)}`
+}
+
+function pluralUnit(unit: string) {
+  if (unit.endsWith('s')) return unit
+  if (/[sxz]$/.test(unit) || unit.endsWith('ch') || unit.endsWith('sh')) return `${unit}es`
+  return `${unit}s`
 }
 
 export function daysUntil(isoDate: string, now = new Date()): number {

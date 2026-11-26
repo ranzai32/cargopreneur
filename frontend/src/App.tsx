@@ -7,11 +7,13 @@ import { AdminOrdersPage } from './pages/admin/OrdersPage'
 import { AdminProductsPage } from './pages/admin/ProductsPage'
 import { AdminSuppliersPage } from './pages/admin/SuppliersPage'
 import { CatalogPage } from './pages/CatalogPage'
+import { CheckoutPage } from './pages/CheckoutPage'
 import { CreateOrderPage } from './pages/CreateOrderPage'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { OrderPage } from './pages/OrderPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { PaymentProcessingPage } from './pages/PaymentProcessingPage'
 import { ProductPage } from './pages/ProductPage'
 import { ProductReviewsPage, SupplierReviewsPage } from './pages/ReviewsPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -53,6 +55,8 @@ export function App() {
           <Route path="/supplier/orders" element={<SupplierOrdersPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/new" element={<CreateOrderPage />} />
+          <Route path="/orders/:orderId/checkout" element={<CheckoutPage />} />
+          <Route path="/orders/:orderId/processing" element={<PaymentProcessingPage />} />
           <Route path="/orders/:orderId" element={<OrderPage />} />
           <Route path="/admin/suppliers" element={<AdminSuppliersPage />} />
           <Route path="/admin/products" element={<AdminProductsPage />} />

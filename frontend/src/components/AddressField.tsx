@@ -56,6 +56,7 @@ export function AddressField({
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
+      <p className="mt-1 text-xs text-ink-600">Type a street. Suggestions appear after 3 letters and come from OpenStreetMap.</p>
       {error && (
         <span id={`${id}-error`} className="mt-1 block text-sm text-danger">
           {error}

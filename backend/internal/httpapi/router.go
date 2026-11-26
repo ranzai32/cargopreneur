@@ -26,6 +26,7 @@ type RouterConfig struct {
 	Notifier     domain.Notifier
 	UploadDir    string
 	Supplier     SupplierAPI
+	Addresses    AddressBook
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -54,6 +55,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		serveUpload(cfg.UploadDir, w, r)
 	})
 	router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/addresses", addressHandler(places.OSM{}))
+	if cfg.Addresses != nil {
+		book := AddressHandler{book: cfg.Addresses}
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Get("/me/addresses", book.List)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/me/addresses", book.Create)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Post("/me/addresses/{id}", book.Update)
+		router.With(requireAuth(cfg.Users, cfg.Tokens)).Delete("/me/addresses/{id}", book.Delete)
+	}
 	router.Route("/auth", func(r chi.Router) {
 		r.With(rateLimit(cfg.Limiter)).Post("/register", authHandler.Register)
 		r.With(rateLimit(cfg.Limiter)).Post("/login", authHandler.Login)

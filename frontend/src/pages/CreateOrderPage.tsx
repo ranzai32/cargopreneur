@@ -9,6 +9,8 @@ import { PageLayout } from '../components/PageLayout'
 import { SelectField } from '../components/TextField'
 import { TextField } from '../components/TextField'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
+import { formatMoney } from '../lib/format'
+import { mediaUrl } from '../lib/media'
 import type { ApiProduct, ProductPage } from '../types/catalog'
 
 export function CreateOrderPage() {
@@ -52,6 +54,7 @@ export function CreateOrderPage() {
     () => productsForSupplier(products, supplierId),
     [products, supplierId],
   )
+  const selected = supplierProducts.find((item) => item.id === productId)
 
   useEffect(() => {
     const selected = supplierProducts.find((item) => item.id === productId)
@@ -99,8 +102,8 @@ export function CreateOrderPage() {
     <PageLayout>
       <Container className="py-section">
         <PageHeader
-          title="Create an order"
-          lede="You add the first quantity. Other businesses can join until the deadline. If the minimum is missed, the order is cancelled."
+          title="Start a pooled order"
+          lede="You set the product, the minimum, and your own quantity. The delivery address is the next step, and only after the pool reaches that minimum. OpenStreetMap suggests the street while you type."
         />
         {!user ? (
           <Card className="mt-8 max-w-xl p-6">
@@ -111,7 +114,8 @@ export function CreateOrderPage() {
             </div>
           </Card>
         ) : (
-          <Card className="mt-8 max-w-xl p-6">
+          <div className="mt-8 grid items-start gap-6 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+          <Card className="p-6">
             <form className="grid gap-4" onSubmit={handleSubmit} noValidate>
               {message && <p role="alert" className="text-sm text-danger">{message}</p>}
               <SelectField id="supplier" label="Supplier" value={supplierId} error={fieldErrors.supplierId} onChange={(event) => handleSupplierChange(event.target.value)}>
@@ -132,6 +136,27 @@ export function CreateOrderPage() {
               <Button type="submit" disabled={pending}>{pending ? 'Creating…' : 'Create order'}</Button>
             </form>
           </Card>
+          <Card className="p-6">
+            {selected?.imageUrl && (
+              <img src={mediaUrl(selected.imageUrl)} alt="" className="aspect-[4/3] w-full rounded-xl object-cover" />
+            )}
+            <h2 className="mt-4 font-serif text-2xl text-ink-950">{selected?.name ?? 'Choose a product'}</h2>
+            <p className="mt-2 text-sm text-ink-700">{selected ? `${selected.supplier.name} · ${selected.supplier.region}` : 'The supplier list loads from the catalog.'}</p>
+            {selected && (
+              <ul className="mt-4 grid gap-2 text-sm text-ink-800">
+                {selected.priceTiers.map((tier) => (
+                  <li key={tier.minQty}>{tier.minQty}+ {selected.unit} at {formatMoney(tier.unitPrice)}</li>
+                ))}
+              </ul>
+            )}
+            <ol className="mt-6 grid gap-3 text-sm text-ink-800">
+              <li>1. This page only records the pool: product, minimum, deadline, and your quantity.</li>
+              <li>2. Other businesses can join while the order stays open.</li>
+              <li>3. After the minimum is reached, checkout is a separate screen: line items, a saved address, a delivery method, and the total.</li>
+              <li>4. The supplier marks the shipment and the delivery from their own account.</li>
+            </ol>
+          </Card>
+          </div>
         )}
       </Container>
     </PageLayout>

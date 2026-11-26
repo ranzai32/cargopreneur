@@ -5,7 +5,6 @@ import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { ProgressBar } from '../components/ProgressBar'
-import { AddressField } from '../components/AddressField'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
@@ -16,11 +15,9 @@ import type { ApiOrder } from '../types/catalog'
 export function OrderPage() {
   const { orderId = '' } = useParams()
   const navigate = useNavigate()
-  const { user, loadOrder, joinOrder, pay, openDispute } = useAppState()
+  const { user, loadOrder, joinOrder, openDispute } = useAppState()
   const [order, setOrder] = useState<ApiOrder | null>(null)
   const [quantity, setQuantity] = useState(1)
-  const [address, setAddress] = useState('')
-  const [addressError, setAddressError] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
@@ -99,32 +96,26 @@ export function OrderPage() {
     }
   }
 
-  async function handlePay() {
-    setPending(true)
-    setAddressError('')
-    setMessage('')
-    try {
-      const updated = await pay(orderId, address)
-      setOrder(updated)
-    } catch (reason) {
-      const fields = fieldErrorsOf(reason)
-      if (fields.shippingAddress) {
-        setAddressError(fields.shippingAddress)
-      } else {
-        setMessage(isApiError(reason) ? reason.message : 'Could not record payment')
-      }
-    } finally {
-      setPending(false)
-    }
-  }
-
-  const canPay = Boolean(order.yourQuantity) && order.status === 'confirmed' && order.yourPaymentStatus === 'unpaid'
+  const joined = Boolean(order.yourQuantity)
+  const paid = order.yourPaymentStatus === 'paid'
+  const canPay = joined && order.status === 'confirmed' && !paid
+  const delivered = order.yourDeliveryStatus === 'delivered' || order.status === 'completed'
+  const steps = orderSteps({ joined, open, canPay, paid, delivered, closed: !open && !joined })
 
   return (
     <PageLayout>
       <Container className="py-section">
         <Link to="/orders" className="text-sm font-semibold text-accent-800">Back to orders</Link>
-        <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+        <ol className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((step, index) => (
+            <li key={step.title} className={`rounded-xl border px-4 py-3 ${step.tone}`}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-600">Step {index + 1}</p>
+              <p className="mt-1 font-semibold text-ink-950">{step.title}</p>
+              <p className="mt-1 text-sm text-ink-700">{step.detail}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={order.status} />
@@ -146,66 +137,56 @@ export function OrderPage() {
             </Card>
           </div>
           <Card className="h-fit p-5 sm:p-6">
-            <h2 className="font-serif text-2xl text-ink-950">Your quantity</h2>
-            {order.yourQuantity ? (
-              <div className="mt-3">
-                <p className="text-ink-700">You joined with {formatQuantity(order.yourQuantity, order.product.unit)}.</p>
-                {canPay && (
-                  <div className="mt-4">
-                    <AddressField
-                      id="shipping-address"
-                      label="Shipping address"
-                      value={address}
-                      error={addressError}
-                      onChange={setAddress}
-                    />
-                    <p className="mt-3 text-sm text-ink-700">This records a simulated payment. No card is charged.</p>
-                    <Button className="mt-4 w-full" disabled={pending} onClick={handlePay}>
-                      {pending ? 'Paying…' : 'Pay'}
-                    </Button>
-                  </div>
-                )}
-                {order.yourPaymentStatus === 'paid' && (
-                  <div className="mt-3">
-                    <p role="status" className="text-ink-800">Your simulated payment was recorded.</p>
-                    <p className="mt-2 text-ink-800">Delivery status: {formatDeliveryStatus(order.yourDeliveryStatus)}</p>
-                  </div>
-                )}
-              </div>
+            {canPay ? (
+              <>
+                <h2 className="font-serif text-2xl text-ink-950">Ready to check out</h2>
+                <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}. Address, delivery, and payment are on their own screen.</p>
+                <Button className="mt-4 w-full" to={`/orders/${order.id}/checkout`}>Continue to checkout</Button>
+              </>
+            ) : paid ? (
+              <>
+                <h2 className="font-serif text-2xl text-ink-950">Delivery</h2>
+                <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}. Payment is recorded.</p>
+                <p className="mt-3 text-ink-800">The supplier ships to the address you entered. Status: {formatDeliveryStatus(order.yourDeliveryStatus)}.</p>
+              </>
+            ) : joined && open ? (
+              <>
+                <h2 className="font-serif text-2xl text-ink-950">Waiting for the pool</h2>
+                <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}.</p>
+                <p className="mt-3 text-sm text-ink-700">The address field stays closed until the collected quantity reaches the minimum. OpenStreetMap suggestions appear on that step, not while the order is still open.</p>
+              </>
             ) : open ? (
-              <div className="mt-4">
-                {!user ? (
-                  <Button onClick={() => navigate('/login', { state: { from: `/orders/${order.id}` } })}>Log in to join</Button>
-                ) : (
-                  <>
-                    <label className="block text-sm font-semibold text-ink-900" htmlFor="join-qty">Quantity</label>
-                    <input id="join-qty" type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} className="mt-1.5 h-11 w-full rounded-md border border-ink-300 px-3" />
-                    <p className="mt-3 text-sm text-ink-700">
-                      {quote.unitPrice === null
-                        ? `${formatQuantity(quote.shortfallToMinimum, order.product.unit)} short of the minimum.`
-                        : `${formatMoney(quote.unitPrice)} per ${order.product.unit}. Estimated savings ${formatMoney(quote.savings ?? 0)} versus retail.`}
-                    </p>
-                    <Button className="mt-4 w-full" disabled={pending} onClick={handleJoin}>
-                      {pending ? 'Joining…' : 'Join this order'}
-                    </Button>
-                  </>
-                )}
-              </div>
+              <>
+                <h2 className="font-serif text-2xl text-ink-950">Add your quantity</h2>
+                <div className="mt-4">
+                  {!user ? (
+                    <Button onClick={() => navigate('/login', { state: { from: `/orders/${order.id}` } })}>Log in to join</Button>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-semibold text-ink-900" htmlFor="join-qty">Quantity</label>
+                      <input id="join-qty" type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} className="mt-1.5 h-11 w-full rounded-md border border-ink-300 px-3" />
+                      <p className="mt-3 text-sm text-ink-700">
+                        {quote.unitPrice === null
+                          ? `${formatQuantity(quote.shortfallToMinimum, order.product.unit)} still needed before anyone pays.`
+                          : `${formatMoney(quote.unitPrice)} per ${order.product.unit}. Estimated savings ${formatMoney(quote.savings ?? 0)} versus retail.`}
+                      </p>
+                      <Button className="mt-4 w-full" disabled={pending} onClick={handleJoin}>
+                        {pending ? 'Joining…' : 'Join this order'}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </>
             ) : (
-              <p className="mt-3 text-ink-700">
-                {order.status === 'completed'
-                  ? 'This order is complete.'
-                  : order.status === 'paid'
-                    ? 'This order is paid.'
-                    : order.status === 'confirmed'
-                      ? 'This order reached the minimum and is confirmed at the wholesale price.'
-                      : 'This order is closed. Nobody has to buy.'}
-              </p>
+              <>
+                <h2 className="font-serif text-2xl text-ink-950">This order is closed</h2>
+                <p className="mt-3 text-ink-700">{closedCopy(order.status)}</p>
+              </>
             )}
             {message && <p role="status" className="mt-3 text-sm text-ink-800">{message}</p>}
           </Card>
         </div>
-        <Card className="mt-8 p-5 sm:p-6">
+        {(canDispute || (order.disputes ?? []).length > 0) && <Card className="mt-8 p-5 sm:p-6">
           <h2 className="font-serif text-2xl text-ink-950">Disputes</h2>
           {(order.disputes ?? []).length === 0 && (
             <p className="mt-3 text-sm text-ink-700">No disputes on this order.</p>
@@ -235,8 +216,41 @@ export function OrderPage() {
               </Button>
             </div>
           )}
-        </Card>
+        </Card>}
       </Container>
     </PageLayout>
   )
+}
+
+function orderSteps(input: {
+  joined: boolean
+  open: boolean
+  canPay: boolean
+  paid: boolean
+  delivered: boolean
+  closed: boolean
+}) {
+  const quantity = input.joined ? 'done' : input.open ? 'current' : 'muted'
+  const address = input.paid || input.canPay ? (input.paid ? 'done' : 'current') : 'muted'
+  const payment = input.paid ? 'done' : input.canPay ? 'current' : 'muted'
+  const delivery = input.delivered ? 'done' : input.paid ? 'current' : 'muted'
+  return [
+    { title: 'Quantity', detail: input.joined ? 'Your quantity is in the pool.' : input.closed ? 'Joining is closed.' : 'Add only what you need.', tone: stepTone(quantity) },
+    { title: 'Checkout', detail: input.canPay ? 'Address and delivery are on the checkout screen.' : input.paid ? 'Payment recorded.' : 'Opens after the minimum is reached.', tone: stepTone(address) },
+    { title: 'Payment', detail: input.paid ? 'Simulated payment recorded.' : 'No card is charged.', tone: stepTone(payment) },
+    { title: 'Delivery', detail: input.delivered ? 'Delivered.' : input.paid ? 'Waiting on the supplier.' : 'The supplier updates this.', tone: stepTone(delivery) },
+  ]
+}
+
+function stepTone(state: 'done' | 'current' | 'muted') {
+  if (state === 'done') return 'border-accent-300 bg-success-soft'
+  if (state === 'current') return 'border-accent-700 bg-white'
+  return 'border-ink-200 bg-ink-50'
+}
+
+function closedCopy(status: ApiOrder['status']) {
+  if (status === 'completed') return 'Every delivery on this order is finished.'
+  if (status === 'paid') return 'Everyone has paid. The supplier is shipping.'
+  if (status === 'confirmed') return 'The minimum was reached. Participants can pay from their own accounts.'
+  return 'The deadline passed before the minimum. Nobody has to buy.'
 }

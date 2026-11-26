@@ -9,7 +9,7 @@ import { PageLayout } from '../components/PageLayout'
 import { TextField } from '../components/TextField'
 import type { ProfileInput } from '../lib/api'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
-import { formatNumber } from '../lib/format'
+import { formatDeliveryStatus, formatNumber, formatQuantity } from '../lib/format'
 import type { ApiOrder, ApiUser } from '../types/catalog'
 import { StatusBadge } from './OrdersPage'
 
@@ -80,7 +80,7 @@ export function AccountPage() {
                 </>
               )}
             </Card>
-            <Card className="p-6">
+            <Card id="orders" className="p-6">
               <h2 className="font-serif text-2xl text-ink-950">Your orders</h2>
               <dl className="mt-4 grid grid-cols-3 gap-3">
                 <Stat label="Joined" value={orders.length} />
@@ -98,7 +98,11 @@ export function AccountPage() {
                       <Link to={`/orders/${order.id}`} className="flex items-center justify-between gap-3 py-3 hover:text-accent-800">
                         <span className="min-w-0">
                           <span className="block truncate font-semibold text-ink-900">{order.product.name}</span>
-                          <span className="text-sm text-ink-700">{formatNumber(order.yourQuantity ?? 0)} {order.product.unit}</span>
+                          <span className="text-sm text-ink-700">
+                            {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}
+                            {' · '}
+                            {order.yourPaymentStatus === 'paid' ? `Paid · ${formatDeliveryStatus(order.yourDeliveryStatus)}` : 'Unpaid'}
+                          </span>
                         </span>
                         <StatusBadge status={order.status} />
                       </Link>

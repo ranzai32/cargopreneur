@@ -40,6 +40,8 @@ const orderSelectSQL = `
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.quantity END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.payment_status END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.delivery_status END),
+	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN NULLIF(p.delivery_method, '') END),
+	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid AND p.delivery_method <> '' THEN p.shipping_fee::float8 END),
 	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
 	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at, pr.image_url,
 	       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.product_id = pr.id), 0),
@@ -219,7 +221,7 @@ func (s *Store) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quanti
 	return order, nil
 }
 
-func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error) {
+func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress, deliveryMethod string) (domain.Order, error) {
 	var order domain.Order
 	var rejected error
 	address := strings.TrimSpace(shippingAddress)
@@ -241,12 +243,13 @@ func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippin
 			return notices, nil
 		}
 		var paymentStatus string
+		var quantity int
 		err = tx.QueryRow(ctx, `
-			SELECT payment_status
+			SELECT payment_status, quantity
 			FROM order_participations
 			WHERE order_id = $1 AND user_id = $2
 			FOR UPDATE
-		`, orderID, userID).Scan(&paymentStatus)
+		`, orderID, userID).Scan(&paymentStatus, &quantity)
 		if errors.Is(err, pgx.ErrNoRows) {
 			rejected = domain.ErrNotParticipant
 			return notices, nil
@@ -258,11 +261,16 @@ func (s *Store) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippin
 			rejected = domain.ErrAlreadyPaid
 			return notices, nil
 		}
+		fee, ok := domain.DeliveryFee(deliveryMethod, quantity)
+		if !ok {
+			rejected = domain.ErrUnknownDelivery
+			return notices, nil
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE order_participations
-			SET payment_status = $3, paid_at = $4, shipping_address = $5
+			SET payment_status = $3, paid_at = $4, shipping_address = $5, delivery_method = $6, shipping_fee = $7
 			WHERE order_id = $1 AND user_id = $2
-		`, orderID, userID, domain.PaymentPaid, time.Now().UTC(), address); err != nil {
+		`, orderID, userID, domain.PaymentPaid, time.Now().UTC(), address, deliveryMethod, fee); err != nil {
 			return nil, fmt.Errorf("mark participation paid: %w", err)
 		}
 		var unpaid int
@@ -701,7 +709,7 @@ func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) 
 		return orders, nil
 	}
 	rows, err := db.Query(ctx, `
-		SELECT id, order_id, quantity, shipping_address, payment_status, delivery_status
+		SELECT id, order_id, quantity, shipping_address, delivery_method, shipping_fee::float8, payment_status, delivery_status
 		FROM order_participations
 		WHERE order_id = ANY($1)
 		ORDER BY created_at ASC, id ASC
@@ -713,7 +721,7 @@ func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) 
 	for rows.Next() {
 		var orderID uuid.UUID
 		var part domain.Participation
-		if err := rows.Scan(&part.ID, &orderID, &part.Quantity, &part.ShippingAddress, &part.PaymentStatus, &part.DeliveryStatus); err != nil {
+		if err := rows.Scan(&part.ID, &orderID, &part.Quantity, &part.ShippingAddress, &part.DeliveryMethod, &part.ShippingFee, &part.PaymentStatus, &part.DeliveryStatus); err != nil {
 			return nil, fmt.Errorf("scan participation: %w", err)
 		}
 		slot, ok := index[orderID]
@@ -988,6 +996,8 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.YourQuantity,
 		&order.YourPaymentStatus,
 		&order.YourDeliveryStatus,
+		&order.YourDeliveryMethod,
+		&order.YourShippingFee,
 		&order.AllPaid,
 		&order.Product.ID,
 		&order.Product.Name,

@@ -110,6 +110,8 @@ function order(
     yourQuantity: null,
     yourPaymentStatus: null,
     yourDeliveryStatus: null,
+    yourDeliveryMethod: null,
+    yourShippingFee: null,
     allPaid: false,
     disputes: [],
     participants: [
@@ -117,6 +119,8 @@ function order(
         id: `${id.slice(0, -2)}b1`,
         quantity: collectedQty,
         shippingAddress: '',
+        deliveryMethod: '',
+        shippingFee: 0,
         paymentStatus: 'unpaid',
         deliveryStatus: 'pending',
       },
