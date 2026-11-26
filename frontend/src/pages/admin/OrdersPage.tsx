@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { isApiError, useAppState } from '../../lib/app-state'
-import { formatDeliveryStatus, formatNumber } from '../../lib/format'
+import { formatDeliveryStatus, formatNumber, formatReceiptStatus } from '../../lib/format'
 import type { ApiOrder } from '../../types/catalog'
 import { StatusBadge } from '../OrdersPage'
 import { AdminFrame } from './AdminFrame'
@@ -110,7 +110,7 @@ function OrderManager() {
                             {formatNumber(participant.quantity)} {order.product.unit}
                             {participant.shippingAddress ? ` · ${participant.shippingAddress}` : ''}
                             {` · ${participant.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}`}
-                            {` · ${formatDeliveryStatus(participant.deliveryStatus)}`}
+                            {` · Supplier: ${formatDeliveryStatus(participant.deliveryStatus)} · Buyer: ${formatReceiptStatus(participant.receiptStatus)}`}
                           </p>
                         </li>
                       )

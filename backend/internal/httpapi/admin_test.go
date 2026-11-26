@@ -401,9 +401,21 @@ func TestAdminTracksDelivery(t *testing.T) {
 	if partnerShipped["status"] != domain.OrderPaid || findParticipation(t, partnerShipped, partnerPart.String())["deliveryStatus"] != domain.DeliveryShipped {
 		t.Fatalf("partner ship = %#v", partnerShipped)
 	}
-	completed, _ := request(t, router, http.MethodPost, "/admin/participations/"+partnerPart.String()+"/deliver", nil, adminCookie, http.StatusOK)
-	assertOrderShape(t, completed)
-	if completed["status"] != domain.OrderCompleted || findParticipation(t, completed, partnerPart.String())["deliveryStatus"] != domain.DeliveryDelivered || findParticipation(t, completed, payerPart.String())["deliveryStatus"] != domain.DeliveryDelivered {
+	bothDelivered, _ := request(t, router, http.MethodPost, "/admin/participations/"+partnerPart.String()+"/deliver", nil, adminCookie, http.StatusOK)
+	assertOrderShape(t, bothDelivered)
+	if bothDelivered["status"] != domain.OrderPaid || findParticipation(t, bothDelivered, partnerPart.String())["deliveryStatus"] != domain.DeliveryDelivered || findParticipation(t, bothDelivered, payerPart.String())["deliveryStatus"] != domain.DeliveryDelivered {
+		t.Fatalf("both delivered = %#v", bothDelivered)
+	}
+	payerReceived, _ := request(t, router, http.MethodPost, "/orders/"+paidID.String()+"/receive", nil, payerCookie, http.StatusOK)
+	if payerReceived["status"] != domain.OrderPaid || payerReceived["yourReceiptStatus"] != domain.ReceiptReceived {
+		t.Fatalf("payer receipt = %#v", payerReceived)
+	}
+	earlyReceipt, _ := request(t, router, http.MethodPost, "/orders/"+earlyID.String()+"/receive", nil, payerCookie, http.StatusBadRequest)
+	if earlyReceipt["message"] != "Confirm receipt after the supplier marks the order delivered" {
+		t.Fatalf("early receipt = %#v", earlyReceipt)
+	}
+	completed, _ := request(t, router, http.MethodPost, "/orders/"+paidID.String()+"/receive", nil, partnerCookie, http.StatusOK)
+	if completed["status"] != domain.OrderCompleted || completed["yourReceiptStatus"] != domain.ReceiptReceived {
 		t.Fatalf("completed = %#v", completed)
 	}
 	recorded = notices.list()

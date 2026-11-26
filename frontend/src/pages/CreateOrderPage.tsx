@@ -153,7 +153,7 @@ export function CreateOrderPage() {
               <li>1. This page only records the pool: product, minimum, deadline, and your quantity.</li>
               <li>2. Other businesses can join while the order stays open.</li>
               <li>3. After the minimum is reached, checkout is a separate screen: line items, a saved address, a delivery method, and the total.</li>
-              <li>4. The supplier marks the shipment and the delivery from their own account.</li>
+              <li>4. The supplier marks the order delivered. You mark it received. The order is complete only after both.</li>
             </ol>
           </Card>
           </div>

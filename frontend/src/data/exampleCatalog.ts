@@ -112,6 +112,7 @@ function order(
     yourDeliveryStatus: null,
     yourDeliveryMethod: null,
     yourShippingFee: null,
+    yourReceiptStatus: null,
     allPaid: false,
     disputes: [],
     participants: [
@@ -123,6 +124,7 @@ function order(
         shippingFee: 0,
         paymentStatus: 'unpaid',
         deliveryStatus: 'pending',
+        receiptStatus: 'pending',
       },
     ],
     product: item,

@@ -10,7 +10,7 @@ import { PageLayout } from '../../components/PageLayout'
 import { TextField } from '../../components/TextField'
 import { api } from '../../lib/api'
 import { fieldErrorsOf, isApiError, useAppState } from '../../lib/app-state'
-import { formatDeliveryStatus, formatNumber } from '../../lib/format'
+import { formatDeliveryStatus, formatNumber, formatReceiptStatus } from '../../lib/format'
 import type { ApiOrder, ApiProduct } from '../../types/catalog'
 import { StatusBadge } from '../OrdersPage'
 
@@ -248,11 +248,12 @@ function OrderDesk() {
                       {formatNumber(participant.quantity)} {order.product.unit}
                       {participant.shippingAddress ? ` · ${participant.shippingAddress}` : ''}
                       {` · ${participant.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}`}
-                      {` · ${formatDeliveryStatus(participant.deliveryStatus)}`}
+                      {` · Supplier: ${formatDeliveryStatus(participant.deliveryStatus)}`}
+                      {` · Buyer: ${formatReceiptStatus(participant.receiptStatus)}`}
                     </p>
                     <div className="mt-3 flex gap-2">
                       <Button size="sm" disabled={updating !== '' || participant.paymentStatus !== 'paid' || participant.deliveryStatus !== 'pending'} onClick={() => void update(participant.id, true)}>Ship</Button>
-                      <Button size="sm" variant="secondary" disabled={updating !== '' || participant.paymentStatus !== 'paid' || participant.deliveryStatus !== 'shipped'} onClick={() => void update(participant.id, false)}>Deliver</Button>
+                      <Button size="sm" variant="secondary" disabled={updating !== '' || participant.paymentStatus !== 'paid' || participant.deliveryStatus !== 'shipped'} onClick={() => void update(participant.id, false)}>Order delivered</Button>
                     </div>
                   </li>
                 ))}

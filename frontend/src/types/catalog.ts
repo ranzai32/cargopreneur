@@ -47,6 +47,7 @@ export type ApiUser = {
 }
 
 export type DeliveryStatus = 'pending' | 'shipped' | 'delivered'
+export type ReceiptStatus = 'pending' | 'received'
 export type DeliveryMethod = 'pickup' | 'freight' | 'express'
 
 export type ApiParticipation = {
@@ -57,6 +58,7 @@ export type ApiParticipation = {
   shippingFee: number
   paymentStatus: 'unpaid' | 'paid'
   deliveryStatus: DeliveryStatus
+  receiptStatus: ReceiptStatus
 }
 
 export type ApiReview = {
@@ -97,6 +99,7 @@ export type ApiOrder = {
   yourDeliveryStatus: DeliveryStatus | null
   yourDeliveryMethod: DeliveryMethod | null
   yourShippingFee: number | null
+  yourReceiptStatus: ReceiptStatus | null
   allPaid: boolean
   participants: ApiParticipation[]
   disputes: ApiDispute[]

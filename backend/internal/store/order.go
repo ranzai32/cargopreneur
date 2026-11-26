@@ -42,6 +42,7 @@ const orderSelectSQL = `
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.delivery_status END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN NULLIF(p.delivery_method, '') END),
 	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid AND p.delivery_method <> '' THEN p.shipping_fee::float8 END),
+	       MAX(CASE WHEN $2::uuid IS NOT NULL AND p.user_id = $2::uuid THEN p.receipt_status END),
 	       COALESCE(BOOL_AND(p.payment_status = 'paid'), false),
 	       pr.id, pr.name, pr.description, pr.category, pr.tags, pr.unit, pr.retail_price::float8, pr.created_at, pr.image_url,
 	       COALESCE((SELECT AVG(rating)::float8 FROM reviews rv WHERE rv.product_id = pr.id), 0),
@@ -482,18 +483,8 @@ func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, v
 			`, participationID, domain.DeliveryDelivered, now); err != nil {
 				return nil, fmt.Errorf("mark participation delivered: %w", err)
 			}
-			var remaining int
-			if err := tx.QueryRow(ctx, `
-				SELECT COUNT(*)::int
-				FROM order_participations
-				WHERE order_id = $1 AND delivery_status <> $2
-			`, orderID, domain.DeliveryDelivered).Scan(&remaining); err != nil {
-				return nil, fmt.Errorf("count undelivered participations: %w", err)
-			}
-			if remaining == 0 {
-				if err := updateOrderStatus(ctx, tx, orderID, domain.OrderCompleted); err != nil {
-					return nil, err
-				}
+			if err := completeWhenBothSidesConfirm(ctx, tx, orderID); err != nil {
+				return nil, err
 			}
 			notices = append(notices, domain.Notice{
 				Kind:    domain.NoticeShipmentDelivered,
@@ -518,6 +509,87 @@ func (s *Store) updateDelivery(ctx context.Context, participationID uuid.UUID, v
 		return domain.Order{}, rejected
 	}
 	return order, nil
+}
+
+func (s *Store) ReceiveOrder(ctx context.Context, orderID, userID uuid.UUID) (domain.Order, error) {
+	var order domain.Order
+	var rejected error
+	err := s.withOrderTx(ctx, func(tx pgx.Tx) ([]domain.Notice, error) {
+		head, err := lockOrder(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		collected, userIDs, err := participationSummary(ctx, tx, orderID)
+		if err != nil {
+			return nil, err
+		}
+		notices, err := settleHead(ctx, tx, &head, collected, userIDs, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		var paymentStatus string
+		var deliveryStatus string
+		var receiptStatus string
+		err = tx.QueryRow(ctx, `
+			SELECT payment_status, delivery_status, receipt_status
+			FROM order_participations
+			WHERE order_id = $1 AND user_id = $2
+			FOR UPDATE
+		`, orderID, userID).Scan(&paymentStatus, &deliveryStatus, &receiptStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			rejected = domain.ErrNotParticipant
+			return notices, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock participation: %w", err)
+		}
+		if !domain.ReceiptAllowed(head.Status, paymentStatus, deliveryStatus, receiptStatus) {
+			rejected = domain.ErrReceiptNotAllowed
+			return notices, nil
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE order_participations
+			SET receipt_status = $3, received_at = $4
+			WHERE order_id = $1 AND user_id = $2
+		`, orderID, userID, domain.ReceiptReceived, time.Now().UTC()); err != nil {
+			return nil, fmt.Errorf("mark participation received: %w", err)
+		}
+		if err := completeWhenBothSidesConfirm(ctx, tx, orderID); err != nil {
+			return nil, err
+		}
+		loaded, err := selectOrders(ctx, tx, "", &userID, &orderID, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(loaded) == 0 {
+			return nil, domain.ErrNotFound
+		}
+		order = loaded[0]
+		return notices, nil
+	})
+	if err != nil {
+		return domain.Order{}, err
+	}
+	if rejected != nil {
+		return domain.Order{}, rejected
+	}
+	return order, nil
+}
+
+func completeWhenBothSidesConfirm(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) error {
+	var remaining int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM order_participations
+		WHERE order_id = $1
+		  AND (delivery_status <> $2 OR receipt_status <> $3)
+	`, orderID, domain.DeliveryDelivered, domain.ReceiptReceived).Scan(&remaining); err != nil {
+		return fmt.Errorf("count unconfirmed participations: %w", err)
+	}
+	if remaining > 0 {
+		return nil
+	}
+	return updateOrderStatus(ctx, tx, orderID, domain.OrderCompleted)
 }
 
 func (s *Store) withOrderTx(ctx context.Context, fn func(tx pgx.Tx) ([]domain.Notice, error)) error {
@@ -714,7 +786,7 @@ func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) 
 		return orders, nil
 	}
 	rows, err := db.Query(ctx, `
-		SELECT id, order_id, quantity, shipping_address, delivery_method, shipping_fee::float8, payment_status, delivery_status
+		SELECT id, order_id, quantity, shipping_address, delivery_method, shipping_fee::float8, payment_status, delivery_status, receipt_status
 		FROM order_participations
 		WHERE order_id = ANY($1)
 		ORDER BY created_at ASC, id ASC
@@ -726,7 +798,7 @@ func attachParticipants(ctx context.Context, db orderDB, orders []domain.Order) 
 	for rows.Next() {
 		var orderID uuid.UUID
 		var part domain.Participation
-		if err := rows.Scan(&part.ID, &orderID, &part.Quantity, &part.ShippingAddress, &part.DeliveryMethod, &part.ShippingFee, &part.PaymentStatus, &part.DeliveryStatus); err != nil {
+		if err := rows.Scan(&part.ID, &orderID, &part.Quantity, &part.ShippingAddress, &part.DeliveryMethod, &part.ShippingFee, &part.PaymentStatus, &part.DeliveryStatus, &part.ReceiptStatus); err != nil {
 			return nil, fmt.Errorf("scan participation: %w", err)
 		}
 		slot, ok := index[orderID]
@@ -1003,6 +1075,7 @@ func scanOrder(row rowScanner) (domain.Order, error) {
 		&order.YourDeliveryStatus,
 		&order.YourDeliveryMethod,
 		&order.YourShippingFee,
+		&order.YourReceiptStatus,
 		&order.AllPaid,
 		&order.Product.ID,
 		&order.Product.Name,

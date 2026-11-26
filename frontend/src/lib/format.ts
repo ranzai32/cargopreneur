@@ -40,6 +40,11 @@ export function formatDeliveryStatus(status: 'pending' | 'shipped' | 'delivered'
   return 'Pending'
 }
 
+export function formatReceiptStatus(status: 'pending' | 'received' | null | undefined): string {
+  if (status === 'received') return 'Received'
+  return 'Not confirmed'
+}
+
 export function formatDaysLeft(days: number): string {
   if (days <= 0) return 'Deadline passed'
   if (days === 1) return '1 day left'
