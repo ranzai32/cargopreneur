@@ -47,7 +47,7 @@ func (s *Store) UpsertSupplierReview(ctx context.Context, supplierID, userID uui
 		INSERT INTO reviews (supplier_id, user_id, rating, body)
 		SELECT s.id, $2, $3, $4
 		FROM suppliers s
-		WHERE s.id = $1 AND s.is_verified
+		WHERE s.id = $1
 		ON CONFLICT (supplier_id, user_id) WHERE supplier_id IS NOT NULL
 		DO UPDATE SET rating = EXCLUDED.rating, body = EXCLUDED.body, created_at = now()
 	`, supplierID, userID, rating, body)
@@ -81,7 +81,7 @@ func (s *Store) UpsertProductReview(ctx context.Context, productID, userID uuid.
 		SELECT p.id, $2, $3, $4
 		FROM products p
 		JOIN suppliers s ON s.id = p.supplier_id
-		WHERE p.id = $1 AND s.is_verified
+		WHERE p.id = $1
 		ON CONFLICT (product_id, user_id) WHERE product_id IS NOT NULL
 		DO UPDATE SET rating = EXCLUDED.rating, body = EXCLUDED.body, created_at = now()
 	`, productID, userID, rating, body)

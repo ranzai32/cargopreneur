@@ -75,7 +75,8 @@ export function ReviewForm({ onSubmit }: { onSubmit: (rating: number, body: stri
       setBody('')
       setMessage('Review saved.')
     } catch (error) {
-      setMessage(isApiError(error) ? error.message : 'Could not save the review')
+      const fields = isApiError(error) ? error.fieldErrors : undefined
+      setMessage(fields?.body || fields?.rating || (isApiError(error) ? error.message : 'Could not save the review'))
     } finally {
       setPending(false)
     }
