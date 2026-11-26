@@ -1,4 +1,4 @@
-import type { AdminDispute, ApiOrder, ApiProduct, ApiReview, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
+import type { AdminDispute, ApiNotification, ApiOrder, ApiProduct, ApiReview, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 
 export const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
@@ -94,6 +94,8 @@ export const api = {
     request<AdminDispute>(`/admin/disputes/${id}/resolve`, { method: 'POST', body: { outcome } }),
   shipParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/ship`, { method: 'POST' }),
   deliverParticipation: (id: string) => request<ApiOrder>(`/admin/participations/${id}/deliver`, { method: 'POST' }),
+  notifications: () => request<ApiNotification[]>('/notifications'),
+  readNotifications: () => request<void>('/notifications/read', { method: 'POST' }),
 }
 
 type SupplierProductBody = {

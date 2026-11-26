@@ -2,11 +2,13 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const (
+	NoticeOrderCreated      = "order_created"
 	NoticeOrderConfirmed    = "order_confirmed"
 	NoticeOrderCancelled    = "order_cancelled"
 	NoticePaymentReceived   = "payment_received"
@@ -20,6 +22,35 @@ type Notice struct {
 	Kind    string
 	OrderID uuid.UUID
 	UserIDs []uuid.UUID
+}
+
+type Notification struct {
+	ID          uuid.UUID
+	Kind        string
+	OrderID     uuid.UUID
+	ProductName string
+	CreatedAt   time.Time
+	Read        bool
+}
+
+type NotificationJSON struct {
+	ID          uuid.UUID `json:"id"`
+	Kind        string    `json:"kind"`
+	OrderID     uuid.UUID `json:"orderId"`
+	ProductName string    `json:"productName"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Read        bool      `json:"read"`
+}
+
+func (n Notification) JSON() NotificationJSON {
+	return NotificationJSON{
+		ID:          n.ID,
+		Kind:        n.Kind,
+		OrderID:     n.OrderID,
+		ProductName: n.ProductName,
+		CreatedAt:   n.CreatedAt.UTC(),
+		Read:        n.Read,
+	}
 }
 
 type Notifier interface {

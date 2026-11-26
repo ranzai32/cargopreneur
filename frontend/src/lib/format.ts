@@ -1,3 +1,5 @@
+import type { NotificationKind } from '../types/catalog'
+
 const money = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -42,6 +44,31 @@ export function formatDaysLeft(days: number): string {
   if (days <= 0) return 'Deadline passed'
   if (days === 1) return '1 day left'
   return `${days} days left`
+}
+
+export function formatNotification(kind: NotificationKind, productName: string): string {
+  switch (kind) {
+    case 'order_created':
+      return `Your order for ${productName} was created. Other businesses can join it now.`
+    case 'order_confirmed':
+      return `Your order for ${productName} reached its minimum. You can pay now.`
+    case 'order_cancelled':
+      return `Your order for ${productName} was cancelled.`
+    case 'payment_received':
+      return `Payment received for ${productName}.`
+    case 'shipment_sent':
+      return `Your ${productName} shipment is on its way.`
+    case 'shipment_delivered':
+      return `Your ${productName} shipment was delivered.`
+    case 'dispute_opened':
+      return `A dispute was opened on the ${productName} order.`
+    case 'dispute_resolved':
+      return `Your dispute on the ${productName} order was resolved.`
+  }
+}
+
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 export function cn(...parts: Array<string | false | null | undefined>): string {

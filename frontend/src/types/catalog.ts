@@ -103,6 +103,25 @@ export type ApiOrder = {
   product: ApiProduct
 }
 
+export type NotificationKind =
+  | 'order_created'
+  | 'order_confirmed'
+  | 'order_cancelled'
+  | 'payment_received'
+  | 'shipment_sent'
+  | 'shipment_delivered'
+  | 'dispute_opened'
+  | 'dispute_resolved'
+
+export type ApiNotification = {
+  id: string
+  kind: NotificationKind
+  orderId: string
+  productName: string
+  createdAt: string
+  read: boolean
+}
+
 export type ProductPage = {
   items: ApiProduct[]
   total: number
