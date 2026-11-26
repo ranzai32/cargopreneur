@@ -17,7 +17,7 @@ func (s *Store) ListSupplierReviews(ctx context.Context, supplierID uuid.UUID) (
 		FROM reviews r
 		JOIN users u ON u.id = r.user_id
 		JOIN suppliers s ON s.id = r.supplier_id
-		WHERE r.supplier_id = $1 AND s.is_verified
+		WHERE r.supplier_id = $1
 		ORDER BY r.created_at DESC, r.id DESC
 	`, supplierID)
 }
@@ -29,7 +29,7 @@ func (s *Store) ListProductReviews(ctx context.Context, productID uuid.UUID) ([]
 		JOIN users u ON u.id = r.user_id
 		JOIN products p ON p.id = r.product_id
 		JOIN suppliers s ON s.id = p.supplier_id
-		WHERE r.product_id = $1 AND s.is_verified
+		WHERE r.product_id = $1
 		ORDER BY r.created_at DESC, r.id DESC
 	`, productID)
 }
