@@ -65,6 +65,7 @@ func main() {
 		Notifier:     domain.NopNotifier{},
 		UploadDir:    cfg.UploadDir,
 		Supplier:     db,
+		Addresses:    db,
 	})
 
 	server := &http.Server{

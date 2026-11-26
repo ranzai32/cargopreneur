@@ -99,6 +99,16 @@
   transition: width 500ms ease-out;
 }
 
+.checkout-spin {
+  animation: checkout-spin 0.8s linear infinite;
+}
+
+@keyframes checkout-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -106,5 +116,9 @@
 
   .progress-fill {
     transition: none;
+  }
+
+  .checkout-spin {
+    animation: none;
   }
 }

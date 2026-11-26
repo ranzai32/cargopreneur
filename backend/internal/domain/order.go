@@ -33,6 +33,8 @@ var (
 	ErrNotReadyForPayment   = errors.New("order not ready for payment")
 	ErrNotParticipant       = errors.New("not a participant")
 	ErrAlreadyPaid          = errors.New("already paid")
+	ErrUnknownDelivery      = errors.New("unknown delivery method")
+	ErrAddressLimit         = errors.New("address limit reached")
 	ErrOrderNotCancellable  = errors.New("order not cancellable")
 	ErrShipmentNotUpdatable = errors.New("shipment cannot be updated")
 	ErrDisputeNotAllowed    = errors.New("dispute not allowed")
@@ -53,6 +55,8 @@ type Order struct {
 	YourQuantity       *int
 	YourPaymentStatus  *string
 	YourDeliveryStatus *string
+	YourDeliveryMethod *string
+	YourShippingFee    *float64
 	AllPaid            bool
 	Participants       []Participation
 	Disputes           []Dispute
@@ -63,6 +67,8 @@ type Participation struct {
 	ID              uuid.UUID
 	Quantity        int
 	ShippingAddress string
+	DeliveryMethod  string
+	ShippingFee     float64
 	PaymentStatus   string
 	DeliveryStatus  string
 }
@@ -71,6 +77,8 @@ type ParticipationJSON struct {
 	ID              uuid.UUID `json:"id"`
 	Quantity        int       `json:"quantity"`
 	ShippingAddress string    `json:"shippingAddress"`
+	DeliveryMethod  string    `json:"deliveryMethod"`
+	ShippingFee     float64   `json:"shippingFee"`
 	PaymentStatus   string    `json:"paymentStatus"`
 	DeliveryStatus  string    `json:"deliveryStatus"`
 }
@@ -86,6 +94,8 @@ type OrderJSON struct {
 	YourQuantity       *int                `json:"yourQuantity"`
 	YourPaymentStatus  *string             `json:"yourPaymentStatus"`
 	YourDeliveryStatus *string             `json:"yourDeliveryStatus"`
+	YourDeliveryMethod *string             `json:"yourDeliveryMethod"`
+	YourShippingFee    *float64            `json:"yourShippingFee"`
 	AllPaid            bool                `json:"allPaid"`
 	Participants       []ParticipationJSON `json:"participants"`
 	Disputes           []DisputeJSON       `json:"disputes"`
@@ -114,6 +124,7 @@ type JoinOrderBody struct {
 
 type PayOrderBody struct {
 	ShippingAddress string `json:"shippingAddress"`
+	DeliveryMethod  string `json:"deliveryMethod"`
 }
 
 func (o Order) JSON() OrderJSON {
@@ -136,6 +147,8 @@ func (o Order) JSON() OrderJSON {
 		YourQuantity:       o.YourQuantity,
 		YourPaymentStatus:  o.YourPaymentStatus,
 		YourDeliveryStatus: o.YourDeliveryStatus,
+		YourDeliveryMethod: o.YourDeliveryMethod,
+		YourShippingFee:    o.YourShippingFee,
 		AllPaid:            o.AllPaid,
 		Participants:       participants,
 		Disputes:           disputes,
@@ -148,6 +161,8 @@ func (p Participation) JSON() ParticipationJSON {
 		ID:              p.ID,
 		Quantity:        p.Quantity,
 		ShippingAddress: p.ShippingAddress,
+		DeliveryMethod:  p.DeliveryMethod,
+		ShippingFee:     p.ShippingFee,
 		PaymentStatus:   p.PaymentStatus,
 		DeliveryStatus:  p.DeliveryStatus,
 	}
@@ -225,12 +240,20 @@ func ParseJoinOrder(body JoinOrderBody) (int, map[string]string) {
 	return quantity, nil
 }
 
-func ParsePayOrder(body PayOrderBody) (string, map[string]string) {
+func ParsePayOrder(body PayOrderBody) (string, string, map[string]string) {
+	errs := map[string]string{}
 	address := strings.TrimSpace(body.ShippingAddress)
 	if address == "" {
-		return "", map[string]string{"shippingAddress": "Enter a shipping address"}
+		errs["shippingAddress"] = "Enter a shipping address"
 	}
-	return address, nil
+	method := strings.TrimSpace(body.DeliveryMethod)
+	if _, ok := DeliveryFee(method, 1); !ok {
+		errs["deliveryMethod"] = "Choose a delivery method"
+	}
+	if len(errs) > 0 {
+		return "", "", errs
+	}
+	return address, method, nil
 }
 
 func NextOrderStatus(status string, deadline time.Time, collected, moq int, now time.Time) (string, bool) {

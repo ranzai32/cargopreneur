@@ -5,7 +5,6 @@ import { Card } from '../components/Card'
 import { Container } from '../components/Container'
 import { PageLayout } from '../components/PageLayout'
 import { ProgressBar } from '../components/ProgressBar'
-import { AddressField } from '../components/AddressField'
 import { StatusBadge } from './OrdersPage'
 import { fieldErrorsOf, isApiError, useAppState } from '../lib/app-state'
 import { quoteQuantity } from '../lib/pricing'
@@ -16,11 +15,9 @@ import type { ApiOrder } from '../types/catalog'
 export function OrderPage() {
   const { orderId = '' } = useParams()
   const navigate = useNavigate()
-  const { user, loadOrder, joinOrder, pay, openDispute } = useAppState()
+  const { user, loadOrder, joinOrder, openDispute } = useAppState()
   const [order, setOrder] = useState<ApiOrder | null>(null)
   const [quantity, setQuantity] = useState(1)
-  const [address, setAddress] = useState('')
-  const [addressError, setAddressError] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
@@ -99,25 +96,6 @@ export function OrderPage() {
     }
   }
 
-  async function handlePay() {
-    setPending(true)
-    setAddressError('')
-    setMessage('')
-    try {
-      const updated = await pay(orderId, address)
-      setOrder(updated)
-    } catch (reason) {
-      const fields = fieldErrorsOf(reason)
-      if (fields.shippingAddress) {
-        setAddressError(fields.shippingAddress)
-      } else {
-        setMessage(isApiError(reason) ? reason.message : 'Could not record payment')
-      }
-    } finally {
-      setPending(false)
-    }
-  }
-
   const joined = Boolean(order.yourQuantity)
   const paid = order.yourPaymentStatus === 'paid'
   const canPay = joined && order.status === 'confirmed' && !paid
@@ -161,21 +139,9 @@ export function OrderPage() {
           <Card className="h-fit p-5 sm:p-6">
             {canPay ? (
               <>
-                <h2 className="font-serif text-2xl text-ink-950">Delivery and payment</h2>
-                <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}. The pool reached the minimum, so the address field is open.</p>
-                <div className="mt-4">
-                  <AddressField
-                    id="shipping-address"
-                    label="Shipping address"
-                    value={address}
-                    error={addressError}
-                    onChange={setAddress}
-                  />
-                  <p className="mt-3 text-sm text-ink-700">Pay records a simulated payment to this address. No card is charged.</p>
-                  <Button className="mt-4 w-full" disabled={pending || address.trim().length < 8} onClick={handlePay}>
-                    {pending ? 'Paying…' : 'Pay and send this address'}
-                  </Button>
-                </div>
+                <h2 className="font-serif text-2xl text-ink-950">Ready to check out</h2>
+                <p className="mt-3 text-ink-700">You joined with {formatQuantity(order.yourQuantity ?? 0, order.product.unit)}. Address, delivery, and payment are on their own screen.</p>
+                <Button className="mt-4 w-full" to={`/orders/${order.id}/checkout`}>Continue to checkout</Button>
               </>
             ) : paid ? (
               <>
@@ -270,7 +236,7 @@ function orderSteps(input: {
   const delivery = input.delivered ? 'done' : input.paid ? 'current' : 'muted'
   return [
     { title: 'Quantity', detail: input.joined ? 'Your quantity is in the pool.' : input.closed ? 'Joining is closed.' : 'Add only what you need.', tone: stepTone(quantity) },
-    { title: 'Address', detail: input.canPay ? 'OpenStreetMap suggests the street here.' : input.paid ? 'Address sent with payment.' : 'Opens after the minimum is reached.', tone: stepTone(address) },
+    { title: 'Checkout', detail: input.canPay ? 'Address and delivery are on the checkout screen.' : input.paid ? 'Payment recorded.' : 'Opens after the minimum is reached.', tone: stepTone(address) },
     { title: 'Payment', detail: input.paid ? 'Simulated payment recorded.' : 'No card is charged.', tone: stepTone(payment) },
     { title: 'Delivery', detail: input.delivered ? 'Delivered.' : input.paid ? 'Waiting on the supplier.' : 'The supplier updates this.', tone: stepTone(delivery) },
   ]

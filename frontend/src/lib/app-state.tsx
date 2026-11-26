@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { exampleCategories, exampleProducts, exampleSuppliers, initialExampleOrders } from '../data/exampleCatalog'
 import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 import { ApiError, api, exampleMode } from './api'
+import { deliveryChoice } from './delivery'
 import type { ProfileInput } from './api'
 import { filterProducts } from './catalog'
 
@@ -50,7 +51,7 @@ type AppState = {
   loadOrder: (id: string) => Promise<ApiOrder>
   createOrder: (input: { productId: string; moq: number; deadline: string; quantity: number }) => Promise<ApiOrder>
   joinOrder: (id: string, quantity: number) => Promise<ApiOrder>
-  pay: (id: string, shippingAddress: string) => Promise<ApiOrder>
+  pay: (id: string, input: { shippingAddress: string; deliveryMethod: string }) => Promise<ApiOrder>
   loadAdminSuppliers: () => Promise<ApiSupplier[]>
   createSupplier: (input: SupplierInput) => Promise<ApiSupplier>
   verifySupplier: (id: string) => Promise<ApiSupplier>
@@ -188,6 +189,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         yourQuantity: input.quantity,
         yourPaymentStatus: 'unpaid',
         yourDeliveryStatus: 'pending',
+        yourDeliveryMethod: null,
+        yourShippingFee: null,
         allPaid: false,
         disputes: [],
         participants: [
@@ -195,6 +198,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             id: crypto.randomUUID(),
             quantity: input.quantity,
             shippingAddress: '',
+            deliveryMethod: '',
+            shippingFee: 0,
             paymentStatus: 'unpaid',
             deliveryStatus: 'pending',
           },
@@ -221,6 +226,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         yourQuantity: quantity,
         yourPaymentStatus: 'unpaid',
         yourDeliveryStatus: 'pending',
+        yourDeliveryMethod: null,
+        yourShippingFee: null,
         allPaid: false,
         participants: [
           ...(current.participants ?? []),
@@ -228,6 +235,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             id: crypto.randomUUID(),
             quantity,
             shippingAddress: '',
+            deliveryMethod: '',
+            shippingFee: 0,
             paymentStatus: 'unpaid',
             deliveryStatus: 'pending',
           },
@@ -237,29 +246,44 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setOrders((items) => items.map((item) => (item.id === id ? updated : item)))
       return updated
     },
-    async pay(id, shippingAddress) {
+    async pay(id, input) {
       if (!user) throw new ApiError(401, 'Authentication required')
-      const address = shippingAddress.trim()
-      if (!address) {
-        throw new ApiError(422, 'Check the highlighted fields', { shippingAddress: 'Enter a shipping address' })
+      const address = input.shippingAddress.trim()
+      const choice = deliveryChoice(input.deliveryMethod, 1)
+      const fieldErrors: Record<string, string> = {}
+      if (!address) fieldErrors.shippingAddress = 'Enter a shipping address'
+      if (!choice) fieldErrors.deliveryMethod = 'Choose a delivery method'
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new ApiError(422, 'Check the highlighted fields', fieldErrors)
       }
-      if (!exampleMode) return api.pay(id, address)
+      if (!exampleMode) return api.pay(id, { shippingAddress: address, deliveryMethod: input.deliveryMethod })
       const current = orders.find((item) => item.id === id)
       if (!current) throw new ApiError(404, 'Order not found')
       if (current.status !== 'confirmed') throw new ApiError(400, 'This order is not ready for payment')
       if (!current.yourQuantity) throw new ApiError(403, 'You are not part of this order')
       if (current.yourPaymentStatus === 'paid') throw new ApiError(409, 'This order is already paid')
+      const priced = deliveryChoice(input.deliveryMethod, current.yourQuantity)
+      if (!priced) throw new ApiError(422, 'Check the highlighted fields', { deliveryMethod: 'Choose a delivery method' })
       const allPaid = current.participantCount <= 1
       let marked = false
       const participants = (current.participants ?? []).map((part) => {
         if (marked || part.paymentStatus === 'paid' || part.quantity !== current.yourQuantity) return part
         marked = true
-        return { ...part, paymentStatus: 'paid' as const, shippingAddress: address, deliveryStatus: 'pending' as const }
+        return {
+          ...part,
+          paymentStatus: 'paid' as const,
+          shippingAddress: address,
+          deliveryMethod: priced.id,
+          shippingFee: priced.price,
+          deliveryStatus: 'pending' as const,
+        }
       })
       const updated: ApiOrder = {
         ...current,
         yourPaymentStatus: 'paid',
         yourDeliveryStatus: 'pending',
+        yourDeliveryMethod: priced.id,
+        yourShippingFee: priced.price,
         allPaid,
         participants,
         status: allPaid ? 'paid' : 'confirmed',

@@ -5,6 +5,13 @@ export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
 
 export type ProfileInput = Pick<ApiUser, 'businessName' | 'contactName' | 'email' | 'region'>
 
+export type SavedAddress = {
+  id: string
+  label: string
+  line: string
+  updatedAt: string
+}
+
 export class ApiError extends Error {
   status: number
   fieldErrors?: FieldErrors
@@ -39,9 +46,15 @@ export const api = {
     request<ApiOrder>('/orders', { method: 'POST', body }),
   joinOrder: (id: string, quantity: number) =>
     request<ApiOrder>(`/orders/${id}/join`, { method: 'POST', body: { quantity } }),
-  pay: (id: string, shippingAddress: string) =>
-    request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body: { shippingAddress } }),
+  pay: (id: string, body: { shippingAddress: string; deliveryMethod: string }) =>
+    request<ApiOrder>(`/orders/${id}/pay`, { method: 'POST', body }),
   addresses: (q: string) => request<{ items: string[] }>(`/addresses?q=${encodeURIComponent(q)}`),
+  savedAddresses: () => request<SavedAddress[]>('/me/addresses'),
+  createAddress: (body: { label: string; line: string }) =>
+    request<SavedAddress>('/me/addresses', { method: 'POST', body }),
+  updateAddress: (id: string, body: { label: string; line: string }) =>
+    request<SavedAddress>(`/me/addresses/${id}`, { method: 'POST', body }),
+  deleteAddress: (id: string) => request<void>(`/me/addresses/${id}`, { method: 'DELETE' }),
   uploadPhoto: (file: File) => uploadFile('/admin/uploads', file),
   supplierUpload: (file: File) => uploadFile('/supplier/uploads', file),
   productReviews: (id: string) => request<ApiReview[]>(`/products/${id}/reviews`),

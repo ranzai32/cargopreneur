@@ -152,7 +152,7 @@ export function CreateOrderPage() {
             <ol className="mt-6 grid gap-3 text-sm text-ink-800">
               <li>1. This page only records the pool: product, minimum, deadline, and your quantity.</li>
               <li>2. Other businesses can join while the order stays open.</li>
-              <li>3. After the minimum is reached, your order page asks for a street. OpenStreetMap suggests it as you type, then you record the simulated payment.</li>
+              <li>3. After the minimum is reached, checkout is a separate screen: line items, a saved address, a delivery method, and the total.</li>
               <li>4. The supplier marks the shipment and the delivery from their own account.</li>
             </ol>
           </Card>

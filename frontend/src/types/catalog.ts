@@ -47,11 +47,14 @@ export type ApiUser = {
 }
 
 export type DeliveryStatus = 'pending' | 'shipped' | 'delivered'
+export type DeliveryMethod = 'pickup' | 'freight' | 'express'
 
 export type ApiParticipation = {
   id: string
   quantity: number
   shippingAddress: string
+  deliveryMethod: string
+  shippingFee: number
   paymentStatus: 'unpaid' | 'paid'
   deliveryStatus: DeliveryStatus
 }
@@ -92,6 +95,8 @@ export type ApiOrder = {
   yourQuantity: number | null
   yourPaymentStatus: 'unpaid' | 'paid' | null
   yourDeliveryStatus: DeliveryStatus | null
+  yourDeliveryMethod: DeliveryMethod | null
+  yourShippingFee: number | null
   allPaid: boolean
   participants: ApiParticipation[]
   disputes: ApiDispute[]

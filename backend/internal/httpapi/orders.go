@@ -18,7 +18,7 @@ type OrderStore interface {
 	FindOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	CreateOrder(ctx context.Context, input domain.NewOrder) (domain.Order, error)
 	JoinOrder(ctx context.Context, orderID, userID uuid.UUID, quantity int) (domain.Order, error)
-	PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error)
+	PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress, deliveryMethod string) (domain.Order, error)
 	CancelOrder(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	ShipParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
 	DeliverParticipation(ctx context.Context, participationID uuid.UUID, viewerID *uuid.UUID) (domain.Order, error)
@@ -167,13 +167,13 @@ func (h OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(w, r, &body); err != nil {
 		return
 	}
-	address, fieldErrors := domain.ParsePayOrder(body)
+	address, method, fieldErrors := domain.ParsePayOrder(body)
 	if len(fieldErrors) > 0 {
 		writeValidation(w, fieldErrors)
 		return
 	}
 	ctx := domain.WithNoticeLog(r.Context())
-	order, err := h.orders.PayOrder(ctx, id, user.ID, address)
+	order, err := h.orders.PayOrder(ctx, id, user.ID, address, method)
 	h.dispatchNotices(ctx)
 	if errors.Is(err, domain.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Order not found", nil)
@@ -185,6 +185,10 @@ func (h OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, domain.ErrNotParticipant) {
 		writeError(w, http.StatusForbidden, "You are not part of this order", nil)
+		return
+	}
+	if errors.Is(err, domain.ErrUnknownDelivery) {
+		writeValidation(w, map[string]string{"deliveryMethod": "Choose a delivery method"})
 		return
 	}
 	if errors.Is(err, domain.ErrAlreadyPaid) {

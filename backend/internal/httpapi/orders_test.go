@@ -322,15 +322,15 @@ func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
 		parts:     []participation{{userID: payer.ID, quantity: 1}},
 	})
 
-	denied, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, nil, http.StatusUnauthorized)
+	denied, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street", "deliveryMethod": "freight"}, nil, http.StatusUnauthorized)
 	if denied["message"] != "Authentication required" {
 		t.Fatalf("auth = %#v", denied)
 	}
-	missing, _ := request(t, router, http.MethodPost, "/orders/"+uuid.NewString()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusNotFound)
+	missing, _ := request(t, router, http.MethodPost, "/orders/"+uuid.NewString()+"/pay", map[string]any{"shippingAddress": "12 Dock Street", "deliveryMethod": "freight"}, payerCookie, http.StatusNotFound)
 	if missing["message"] != "Order not found" {
 		t.Fatalf("missing = %#v", missing)
 	}
-	early, _ := request(t, router, http.MethodPost, "/orders/"+openID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusBadRequest)
+	early, _ := request(t, router, http.MethodPost, "/orders/"+openID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street", "deliveryMethod": "freight"}, payerCookie, http.StatusBadRequest)
 	if early["message"] != "This order is not ready for payment" {
 		t.Fatalf("open = %#v", early)
 	}
@@ -338,15 +338,15 @@ func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
 	if stillOpen["status"] != domain.OrderOpen || stillOpen["yourPaymentStatus"] != domain.PaymentUnpaid || stillOpen["allPaid"] != false {
 		t.Fatalf("open after pay = %#v", stillOpen)
 	}
-	cancelled, _ := request(t, router, http.MethodPost, "/orders/"+cancelledID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusBadRequest)
+	cancelled, _ := request(t, router, http.MethodPost, "/orders/"+cancelledID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street", "deliveryMethod": "freight"}, payerCookie, http.StatusBadRequest)
 	if cancelled["message"] != "This order is not ready for payment" {
 		t.Fatalf("cancelled = %#v", cancelled)
 	}
-	outsider, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "9 River Road"}, outsiderCookie, http.StatusForbidden)
+	outsider, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "9 River Road", "deliveryMethod": "freight"}, outsiderCookie, http.StatusForbidden)
 	if outsider["message"] != "You are not part of this order" {
 		t.Fatalf("outsider = %#v", outsider)
 	}
-	blank, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "   "}, payerCookie, http.StatusUnprocessableEntity)
+	blank, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "   ", "deliveryMethod": "freight"}, payerCookie, http.StatusUnprocessableEntity)
 	if blank["message"] != "Check the highlighted fields" || blank["fieldErrors"].(map[string]any)["shippingAddress"] != "Enter a shipping address" {
 		t.Fatalf("blank = %#v", blank)
 	}
@@ -354,10 +354,13 @@ func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
 		t.Fatalf("notices before payment = %#v", notices.list())
 	}
 
-	paid, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "  12 Dock Street  "}, payerCookie, http.StatusOK)
+	paid, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "  12 Dock Street  ", "deliveryMethod": "freight"}, payerCookie, http.StatusOK)
 	assertOrderShape(t, paid)
 	if paid["status"] != domain.OrderConfirmed || paid["yourPaymentStatus"] != domain.PaymentPaid || paid["allPaid"] != false || intField(t, paid, "yourQuantity") != 6 || intField(t, paid, "collectedQty") != 10 {
 		t.Fatalf("first pay = %#v", paid)
+	}
+	if paid["yourDeliveryMethod"] != "freight" || paid["yourShippingFee"] != 30.7 {
+		t.Fatalf("delivery = %#v %#v", paid["yourDeliveryMethod"], paid["yourShippingFee"])
 	}
 	if saved := savedAddress(t, orders, confirmedID, payer.ID); saved != "12 Dock Street" {
 		t.Fatalf("address = %q", saved)
@@ -367,7 +370,7 @@ func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
 		t.Fatalf("notice = %#v", recorded)
 	}
 
-	again, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street"}, payerCookie, http.StatusConflict)
+	again, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "12 Dock Street", "deliveryMethod": "freight"}, payerCookie, http.StatusConflict)
 	if again["message"] != "This order is already paid" {
 		t.Fatalf("second pay = %#v", again)
 	}
@@ -375,7 +378,7 @@ func TestPayOrderRecordsSimulatedPayment(t *testing.T) {
 		t.Fatalf("notices after second pay = %#v", notices.list())
 	}
 
-	finished, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "4 Market Street"}, partnerCookie, http.StatusOK)
+	finished, _ := request(t, router, http.MethodPost, "/orders/"+confirmedID.String()+"/pay", map[string]any{"shippingAddress": "4 Market Street", "deliveryMethod": "express"}, partnerCookie, http.StatusOK)
 	assertOrderShape(t, finished)
 	if finished["status"] != domain.OrderPaid || finished["yourPaymentStatus"] != domain.PaymentPaid || finished["allPaid"] != true || intField(t, finished, "yourQuantity") != 4 {
 		t.Fatalf("all paid = %#v", finished)
@@ -454,7 +457,7 @@ func signedIn(t *testing.T, users *fakeUsers, tokens *auth.Tokens, role, email s
 
 func assertOrderShape(t *testing.T, order map[string]any) {
 	t.Helper()
-	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "disputes", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity"}
+	want := []string{"allPaid", "collectedQty", "createdAt", "deadline", "disputes", "id", "moq", "participantCount", "participants", "product", "status", "yourDeliveryMethod", "yourDeliveryStatus", "yourPaymentStatus", "yourQuantity", "yourShippingFee"}
 	if !sameStrings(mapKeys(order), want) {
 		t.Fatalf("order keys = %#v", mapKeys(order))
 	}
@@ -485,7 +488,7 @@ func assertOrderShape(t *testing.T, order map[string]any) {
 		t.Fatalf("participants = %#v", order["participants"])
 	}
 	part, ok := parts[0].(map[string]any)
-	if !ok || !sameStrings(mapKeys(part), []string{"deliveryStatus", "id", "paymentStatus", "quantity", "shippingAddress"}) {
+	if !ok || !sameStrings(mapKeys(part), []string{"deliveryMethod", "deliveryStatus", "id", "paymentStatus", "quantity", "shippingAddress", "shippingFee"}) {
 		t.Fatalf("participation = %#v", parts[0])
 	}
 }
@@ -551,6 +554,8 @@ type participation struct {
 	paymentStatus   string
 	paidAt          *time.Time
 	shippingAddress string
+	deliveryMethod  string
+	shippingFee     float64
 	deliveryStatus  string
 	shippedAt       *time.Time
 	deliveredAt     *time.Time
@@ -711,7 +716,7 @@ func (m *memOrders) JoinOrder(ctx context.Context, orderID, userID uuid.UUID, qu
 	return m.view(order, &userID)
 }
 
-func (m *memOrders) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress string) (domain.Order, error) {
+func (m *memOrders) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shippingAddress, deliveryMethod string) (domain.Order, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	order := m.find(orderID)
@@ -735,10 +740,16 @@ func (m *memOrders) PayOrder(ctx context.Context, orderID, userID uuid.UUID, shi
 	if participationStatus(order.parts[index]) == domain.PaymentPaid {
 		return domain.Order{}, domain.ErrAlreadyPaid
 	}
+	fee, ok := domain.DeliveryFee(deliveryMethod, order.parts[index].quantity)
+	if !ok {
+		return domain.Order{}, domain.ErrUnknownDelivery
+	}
 	now := time.Now().UTC()
 	order.parts[index].paymentStatus = domain.PaymentPaid
 	order.parts[index].paidAt = &now
 	order.parts[index].shippingAddress = strings.TrimSpace(shippingAddress)
+	order.parts[index].deliveryMethod = deliveryMethod
+	order.parts[index].shippingFee = fee
 	if allParticipationsPaid(order) {
 		order.status = domain.OrderPaid
 	}
@@ -881,6 +892,8 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 	var yours *int
 	var payment *string
 	var delivery *string
+	var method *string
+	var fee *float64
 	allPaid := len(order.parts) > 0
 	for _, part := range order.parts {
 		status := participationStatus(part)
@@ -889,6 +902,8 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 			ID:              part.id,
 			Quantity:        part.quantity,
 			ShippingAddress: part.shippingAddress,
+			DeliveryMethod:  part.deliveryMethod,
+			ShippingFee:     part.shippingFee,
 			PaymentStatus:   status,
 			DeliveryStatus:  shipped,
 		})
@@ -902,6 +917,12 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 			payment = &statusCopy
 			deliveryCopy := shipped
 			delivery = &deliveryCopy
+			if part.deliveryMethod != "" {
+				methodCopy := part.deliveryMethod
+				feeCopy := part.shippingFee
+				method = &methodCopy
+				fee = &feeCopy
+			}
 		}
 	}
 	return domain.Order{
@@ -916,6 +937,8 @@ func (m *memOrders) view(order *storedOrder, viewerID *uuid.UUID) (domain.Order,
 		YourQuantity:       yours,
 		YourPaymentStatus:  payment,
 		YourDeliveryStatus: delivery,
+		YourDeliveryMethod: method,
+		YourShippingFee:    fee,
 		AllPaid:            allPaid,
 		Participants:       participants,
 		Disputes:           disputes,
