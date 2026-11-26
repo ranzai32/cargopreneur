@@ -3,6 +3,8 @@ import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErr
 export const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 export const exampleMode = import.meta.env.VITE_USE_MOCKS !== 'false'
 
+export type ProfileInput = Pick<ApiUser, 'businessName' | 'contactName' | 'email' | 'region'>
+
 export class ApiError extends Error {
   status: number
   fieldErrors?: FieldErrors
@@ -26,6 +28,7 @@ export const api = {
     region: string
   }) => request<ApiUser>('/auth/register', { method: 'POST', body }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  updateMe: (body: ProfileInput) => request<ApiUser>('/auth/me', { method: 'POST', body }),
   products: (filters: ProductFilters) => request<ProductPage>(`/products${queryString(filters)}`),
   product: (id: string) => request<ApiProduct>(`/products/${id}`),
   categories: () => request<Array<{ name: string; count: number }>>('/categories'),

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { exampleCategories, exampleProducts, exampleSuppliers, initialExampleOrders } from '../data/exampleCatalog'
 import type { AdminDispute, ApiOrder, ApiProduct, ApiSupplier, ApiUser, FieldErrors, ProductFilters, ProductPage } from '../types/catalog'
 import { ApiError, api, exampleMode } from './api'
+import type { ProfileInput } from './api'
 import { filterProducts } from './catalog'
 
 const userKey = 'cargoprener-user'
@@ -41,6 +42,7 @@ type AppState = {
   login: (email: string, password: string) => Promise<void>
   register: (input: RegisterInput) => Promise<void>
   logout: () => Promise<void>
+  updateProfile: (input: ProfileInput) => Promise<void>
   loadProducts: (filters: ProductFilters) => Promise<ProductPage>
   loadProduct: (id: string) => Promise<ApiProduct>
   loadCategories: () => Promise<Array<{ name: string; count: number }>>
@@ -130,6 +132,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (!exampleMode) await api.logout().catch(() => undefined)
       sessionStorage.removeItem(userKey)
       setUser(null)
+    },
+    async updateProfile(input) {
+      if (!user) throw new ApiError(401, 'Authentication required')
+      if (!exampleMode) {
+        setUser(await api.updateMe(input))
+        return
+      }
+      const next = { ...user, ...input, email: input.email.trim().toLowerCase() }
+      sessionStorage.setItem(userKey, JSON.stringify(next))
+      setUser(next)
     },
     async loadProducts(filters) {
       if (exampleMode) return filterProducts(exampleProducts, filters)

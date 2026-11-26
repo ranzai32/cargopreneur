@@ -155,6 +155,16 @@ Session cookie name: `session`. It is `HttpOnly`, `SameSite=Lax`, and `Secure` w
 {"message": "Authentication required"}
 ```
 
+### `POST /auth/me`
+
+Updates the signed-in user's profile.
+
+```json
+{"businessName": "Harbor Shop", "contactName": "Ada Lopez", "email": "ada@harbor.example", "region": "Grand Rapids, MI"}
+```
+
+`200` with the updated user object. `401` without a session, `422` with `fieldErrors` when a field is missing or the email is invalid, and `409` when the email belongs to another account.
+
 `/auth/login` and `/auth/register` are limited to 10 requests per minute per address.
 
 ### Catalog
